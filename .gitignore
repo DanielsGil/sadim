@@ -1,0 +1,40 @@
+# ---------- Python / Django ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+env/
+*.log
+db.sqlite3
+db.sqlite3-journal
+
+# Migraciones: SÍ se versionan. No las ignores.
+
+# ---------- Secretos ----------
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ---------- Archivos subidos / media ----------
+/backend/media/
+/backend/staticfiles/
+
+# ---------- Node / PWA ----------
+node_modules/
+dist/
+build/
+.vite/
+*.local
+
+# ---------- Editores / SO ----------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# ---------- Claude Code ----------
+.claude/settings.local.json
