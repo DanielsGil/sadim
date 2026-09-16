@@ -85,6 +85,26 @@ Aprobadas por el equipo para cerrar Sprint 2 (16/09/2026) y aplicadas en `cierre
 | D4 | `GET /api/productos/`: ADMIN ve activos e inactivos; OPERADOR solo activos. |
 | D5 | OPERADOR no recibe `costo_produccion` en las respuestas de productos (ADR-005). |
 | D6 | `operation_id` en Categoria y Producto: se acepta en POST; si no llega, lo genera el servidor; no se puede modificar. Un `operation_id` repetido responde 400 `DATOS_INVALIDOS` (devolver el resultado original en vez de rechazar llega con HU-045, sincronización). |
+| D7 | Toda FK del dominio usa `on_delete=PROTECT` (nunca `CASCADE`): nada se borra físicamente (R-17, baja lógica del Contrato). Hoy aplica a `Producto.categoria`; es la convención para cualquier FK nueva de Sprint 3. |
+| D8 | El campo heredado `Usuario.password` (de `AbstractBaseUser`, `VARCHAR(128)`, columna `password`) se sobrescribe como `CharField(max_length=255, db_column="password_hash")` para que la columna física coincida con ERD §5.1. El atributo Python sigue siendo `user.password`; `set_password()`/`check_password()`/`authenticate()` no cambian. |
+
+**Campos y tablas técnicos de Django en Usuario (no están en el ERD; no se quitan — sostienen `AbstractBaseUser`/`PermissionsMixin`, `/admin/` y el propio login):**
+
+| Columna en `usuarios_usuario` | Origen | Para qué sirve |
+|---|---|---|
+| `last_login` | `AbstractBaseUser` | Fecha del último login exitoso; simplejwt la actualiza sola (`UPDATE_LAST_LOGIN`). Solo auditoría, SADIM no la usa en reglas de negocio. |
+| `is_superuser` | `PermissionsMixin` | Bandera de Django que salta todas las verificaciones de permisos (`has_perm` siempre True); la usa `/admin/`, no el RBAC de SADIM (`rol`). `createsuperuser` la deja en `true`. |
+| `is_staff` | Declarado explícito en el modelo | Permite o no entrar a `/admin/`. No forma parte del RBAC de SADIM. |
+| `is_active` | Declarado explícito en el modelo | La revisan `authenticate()` y las permission classes de DRF para permitir login/acceso; se mantiene sincronizada con `activo` en `Usuario.save()` (ERD solo declara `activo`). |
+
+| Tabla | Origen | Para qué sirve |
+|---|---|---|
+| `auth_group`, `auth_permission`, `auth_group_permissions` | `django.contrib.auth` (requerido por `AbstractBaseUser`/`PermissionsMixin`) | Catálogo de grupos y permisos de Django; los usa `/admin/`, no el RBAC de SADIM. Quedan vacías en operación normal. |
+| `usuarios_usuario_groups`, `usuarios_usuario_user_permissions` | `PermissionsMixin` (declara `groups` y `user_permissions` como M2M) | Tablas puente de esas mismas relaciones M2M. |
+| `django_admin_log` | `django.contrib.admin` | Historial de acciones hechas desde `/admin/`. |
+| `django_content_type` | `django.contrib.contenttypes` | Registro interno modelo↔tipo que usan el sistema de permisos y `django_admin_log`. |
+| `django_session` | `django.contrib.sessions` | Sesiones basadas en cookie; la API de SADIM es JWT (sin estado) y no la usa, pero el login de `/admin/` sí. |
+| `django_migrations` | Núcleo de Django | Bitácora de qué migraciones ya se aplicaron. |
 
 **Nota sobre el momento de esta auditoría:** se corrió con el paquete v1 (antes de existir HU-041 a HU-048). Las preguntas 2 a 5 del informe original ya tienen respuesta en el backlog v2:
 
