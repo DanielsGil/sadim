@@ -73,6 +73,15 @@ Origen: informe `/auditar-sprint2` corrido contra el código real (repo con `usu
 | IMP-09 | Media | `core/settings.py` | Motor de base de datos era SQLite; ADR-001 exige PostgreSQL (SQLite solo opcional para pruebas). `psycopg2-binary` ya estaba instalado. | Resuelta | Commit `e1551f6`. `DATABASES` apunta a PostgreSQL vía variables de entorno (`.env`); migraciones aplicadas sobre `sadim_db`. |
 | IMP-10 | Media | Raíz del repo | Sin frontend (`package.json` no existía), sin `.gitignore`, sin `requirements.txt`, sin ningún commit todavía. | Resuelta | El scaffold de Vite+TS y el primer commit ya existían antes de esta rama (`ee3b5ed`, `fbc79d8`, previos a esta sesión); `.gitignore` ya estaba versionado. `requirements.txt` agregado en el commit `e1551f6` de esta rama. |
 
+Revisión posterior de `docs/evidencias/sprint-2.md` contra el Contrato (16/09/2026) encontró dos desviaciones más, ya corregidas en `cierre-sprint-2`:
+
+| ID | Sev. | Dónde | Problema | Estado | Evidencia |
+|---|---|---|---|---|---|
+| IMP-11 | Media | `inventario/serializers.py` | `ProductoSerializer` exponía el campo como `categoria` en la solicitud y la respuesta; el Contrato §6 y el ERD §5.6 usan `categoria_id`. | Resuelta | Commit `5f065e3`. `categoria_id = PrimaryKeyRelatedField(source='categoria', ...)`, con `fields` explícito en vez de `'__all__'`. El modelo (`Producto.categoria`) y la columna física (`categoria_id`, ya así por convención de Django) no cambiaron; el filtro `?categoria=` del Contrato §6 tampoco. |
+| IMP-12 | Media | `core/settings.py` (`REST_FRAMEWORK`, no existía) | Los valores monetarios y las cantidades salían como texto (`"3500.00"`); el Contrato §2 y sus ejemplos los representan como número JSON (`3500.00`). | Resuelta | Commit `401b81f`. `COERCE_DECIMAL_TO_STRING: False`: DRF deja de convertir `Decimal` a `str` al serializar. El backend sigue calculando con `Decimal` en todo momento; solo cambió la representación de salida. |
+
+Al escribir las pruebas de IMP-11/IMP-12 apareció además un bug no relacionado con ninguno de los dos: `GET`/`PATCH` sobre un `id` inexistente respondía `500 ERROR_INTERNO` en vez de `404 RECURSO_NO_ENCONTRADO`, porque `core/exceptions.py` (IMP-07) nunca traducía `Http404`/`PermissionDenied` de Django — esa traducción vive dentro del `exception_handler` **por defecto** de DRF, no en `APIView.handle_exception()`, y se perdió al reemplazarlo por completo. Corregido en el commit `5528831`, con pruebas `test_producto_inexistente_responde_404` y `test_categoria_inexistente_responde_404`.
+
 ### Decisiones de implementación Sprint 2 — pendientes de formalizar en el Contrato
 
 Aprobadas por el equipo para cerrar Sprint 2 (16/09/2026) y aplicadas en `cierre-sprint-2`. No están todavía escritas en `docs/referencia/05_Contrato_API_SADIM.md`; quien actualice el Contrato debe incorporarlas o decidir explícitamente no hacerlo.
