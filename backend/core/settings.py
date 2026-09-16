@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -151,3 +152,11 @@ REST_FRAMEWORK = {
     'COERCE_DECIMAL_TO_STRING': False,
 }
 AUTH_USER_MODEL = 'usuarios.Usuario'
+
+# Al ejecutar `manage.py test`, cambia a un hasher de contraseñas rápido
+# (MD5, inseguro) en vez del PBKDF2 por defecto: cada login de cada prueba
+# hashea/verifica una contraseña, y con PBKDF2 (~600 000 iteraciones) eso
+# domina el tiempo total de la suite. No afecta `runserver` ni producción:
+# solo se activa cuando 'test' aparece en el comando invocado.
+if 'test' in sys.argv:
+    PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
