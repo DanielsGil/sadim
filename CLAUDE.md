@@ -19,7 +19,7 @@ Documentos aprobados en `docs/referencia/` (no los modifiques; los actualiza el 
 | `04_Wireframes_SADIM_v2.md` | Referencia visual de pantallas/mockups de la PWA (contexto de interfaz, no especificación de API) |
 | `05_Contrato_API_SADIM.md` | Rutas, métodos, roles y JSON exactos; formato de error (§14) |
 | `Backlog_Definitivo.md` | HU-XXX, sprint, criterios de aceptación |
-| `00_Anteproyecto.md` | Alcance, objetivos y exclusiones (contexto, no especificación técnica). No se encontró una versión v2 en `.docx` para convertir; si aparece, avisar antes de reemplazar este documento. |
+| `00_Anteproyecto_SADIM_v2.md` | Alcance, objetivos y exclusiones (contexto, no especificación técnica) |
 
 También: `docs/INCONSISTENCIAS.md` (problemas conocidos, con ID), `docs/TRAZABILIDAD.md` (matriz HU ↔ CU) y `docs/GUIA_CAMBIOS_DOCUMENTOS.md` (correcciones definidas pero aún no aplicadas a los documentos).
 
