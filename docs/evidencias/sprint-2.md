@@ -1,6 +1,6 @@
 # Evidencia — Cierre de Sprint 2 (SADIM)
 
-Generado el 16/09/2026 en la rama `cierre-sprint-2`, contra PostgreSQL 18 (`sadim_db` / `test_sadim_db`). Corresponde a HU-007..HU-012 e IMP-01..IMP-10 (`docs/INCONSISTENCIAS.md`, sección D). Actualizado el mismo día tras aplicar D7 (PROTECT) y D8 (password_hash).
+Generado el 16/09/2026 en la rama `cierre-sprint-2`, contra PostgreSQL 18 (`sadim_db` / `test_sadim_db`). Corresponde a HU-007..HU-012 e IMP-01..IMP-10 (`docs/INCONSISTENCIAS.md`, sección D). Actualizado el mismo día tras D7 (PROTECT), D8 (password_hash) y, en una segunda pasada, dos desviaciones de código frente al Contrato: `categoria_id` en vez de `categoria`, y decimales como número JSON en vez de texto (ver "Decisiones de implementación Sprint 2" en `docs/INCONSISTENCIAS.md`).
 
 ## 1. Salida completa de las pruebas
 
@@ -8,7 +8,7 @@ Comando: `python backend/manage.py test usuarios inventario -v 2` (equivalente a
 
 ```
 Creating test database for alias 'default' ('test_sadim_db')...
-Found 30 test(s).
+Found 33 test(s).
 Operations to perform:
   Synchronize unmigrated apps: messages, rest_framework, rest_framework_simplejwt, staticfiles
   Apply all migrations: admin, auth, contenttypes, inventario, sessions, usuarios
@@ -63,19 +63,22 @@ test_filtros_categoria_y_tipo (inventario.tests.CatalogoTests.test_filtros_categ
 test_operador_no_recibe_costo_produccion (inventario.tests.CatalogoTests.test_operador_no_recibe_costo_produccion) ... ok
 test_operation_id_duplicado_en_api_responde_400 (inventario.tests.CatalogoTests.test_operation_id_duplicado_en_api_responde_400) ... ok
 test_operation_id_no_se_puede_modificar (inventario.tests.CatalogoTests.test_operation_id_no_se_puede_modificar) ... ok
+test_categoria_inexistente_responde_404 (inventario.tests.RBACTests.test_categoria_inexistente_responde_404) ... ok
 test_operador_no_puede_crear_categoria (inventario.tests.RBACTests.test_operador_no_puede_crear_categoria) ... ok
 test_operador_no_puede_crear_ni_editar_producto (inventario.tests.RBACTests.test_operador_no_puede_crear_ni_editar_producto) ... ok
 test_operador_no_puede_editar_categoria (inventario.tests.RBACTests.test_operador_no_puede_editar_categoria) ... ok
+test_producto_inexistente_responde_404 (inventario.tests.RBACTests.test_producto_inexistente_responde_404) ... ok
 test_put_y_delete_no_permitidos_en_categorias (inventario.tests.RBACTests.test_put_y_delete_no_permitidos_en_categorias) ... ok
 test_put_y_delete_no_permitidos_en_productos (inventario.tests.RBACTests.test_put_y_delete_no_permitidos_en_productos) ... ok
 test_sin_token_devuelve_401_en_categorias_y_productos (inventario.tests.RBACTests.test_sin_token_devuelve_401_en_categorias_y_productos) ... ok
 test_categoria_con_productos_no_se_puede_borrar (inventario.tests.RestriccionesBDTests.test_categoria_con_productos_no_se_puede_borrar) ... ok
+test_costo_produccion_negativo_rechazado (inventario.tests.RestriccionesBDTests.test_costo_produccion_negativo_rechazado) ... ok
 test_operation_id_duplicado_rechazado (inventario.tests.RestriccionesBDTests.test_operation_id_duplicado_rechazado) ... ok
 test_precio_venta_negativo_rechazado (inventario.tests.RestriccionesBDTests.test_precio_venta_negativo_rechazado) ... ok
 test_producto_duplicado_en_misma_categoria_rechazado (inventario.tests.RestriccionesBDTests.test_producto_duplicado_en_misma_categoria_rechazado) ... ok
 
 ----------------------------------------------------------------------
-Ran 30 tests in 174.830s
+Ran 33 tests in 0.343s
 
 OK
 Destroying test database for alias 'default' ('test_sadim_db')...
@@ -83,7 +86,7 @@ Destroying test database for alias 'default' ('test_sadim_db')...
 System check identified no issues (0 silenced).
 ```
 
-Nota: los ~175s los explica casi por completo el hasher de contraseñas de Django (PBKDF2, ~600 000 iteraciones), invocado en cada login de cada prueba — es el costo esperado de un hash de contraseñas seguro, no una prueba lenta por diseño.
+Nota sobre el tiempo: bajó de ~175s a ~0.34s porque `manage.py test` ahora usa `MD5PasswordHasher` en vez de PBKDF2 (ver commit "perf(core): hasher de contraseñas rápido solo en pruebas"). No afecta `runserver` ni producción.
 
 ## 2. Ejemplos de solicitud y respuesta
 
@@ -146,10 +149,10 @@ Respuesta (200):
 
 ### POST /api/productos/ como ADMIN → 201
 
-Solicitud (con `Authorization: Bearer <access_token del ADMIN>`):
+Solicitud (con `Authorization: Bearer <access_token del ADMIN>`) — nótese `categoria_id` (Contrato §6, ya no `categoria`):
 ```json
 {
-  "categoria": "d0ceb8f7-b3fc-4ddb-8979-775cdadf6683",
+  "categoria_id": "58d7aff9-6d56-4b33-8e20-10af4e77a22c",
   "nombre": "Cafe americano",
   "tipo": "REVENTA_DIRECTA",
   "precio_venta": "3500.00",
@@ -160,21 +163,21 @@ Solicitud (con `Authorization: Bearer <access_token del ADMIN>`):
 }
 ```
 
-Respuesta (201) — `stock_actual` es `0.00` aunque no se envió, `operation_id` lo generó el servidor:
+Respuesta (201) — `stock_actual` es `0.0` aunque no se envió, `operation_id` lo generó el servidor, y los decimales salen como número JSON (Contrato §2), no como texto:
 ```json
 {
-  "id": "2b65996b-5424-4440-a617-471486729464",
-  "operation_id": "ae6aa66f-75bc-4763-ae93-37fe09d8e98a",
+  "id": "0aba7f9b-cb66-49e0-b84d-6756975b7b0d",
+  "operation_id": "300a0ea4-c782-4c15-a049-f7af3386b7a1",
+  "categoria_id": "58d7aff9-6d56-4b33-8e20-10af4e77a22c",
   "nombre": "Cafe americano",
   "tipo": "REVENTA_DIRECTA",
-  "precio_venta": "3500.00",
-  "costo_produccion": "1200.00",
-  "stock_actual": "0.00",
-  "stock_minimo": "5.00",
+  "precio_venta": 3500.0,
+  "costo_produccion": 1200.0,
+  "stock_actual": 0.0,
+  "stock_minimo": 5.0,
   "controla_stock": true,
   "unidad_medida": "unidad",
-  "activo": true,
-  "categoria": "d0ceb8f7-b3fc-4ddb-8979-775cdadf6683"
+  "activo": true
 }
 ```
 
@@ -199,5 +202,29 @@ Respuesta (405):
   "code": "METODO_NO_PERMITIDO",
   "message": "El método HTTP utilizado no está permitido para este recurso.",
   "details": {}
+}
+```
+
+### GET /api/productos/ sin token → 401
+
+Respuesta (401):
+```json
+{
+  "code": "NO_AUTENTICADO",
+  "message": "Se requiere autenticación para realizar esta operación.",
+  "details": {}
+}
+```
+
+### GET /api/productos/?tipo=INVALIDO → 400
+
+Respuesta (400) — valor de filtro fuera del catálogo cerrado de `tipo`:
+```json
+{
+  "code": "DATOS_INVALIDOS",
+  "message": "Los datos enviados no son válidos.",
+  "details": {
+    "tipo": "Debe ser uno de: INSUMO_PRODUCCION, REVENTA_DIRECTA."
+  }
 }
 ```
