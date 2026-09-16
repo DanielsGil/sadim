@@ -20,7 +20,8 @@ class Producto(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     # ERD §5.6: identificador de la operación de creación, para sincronización idempotente (R-30).
     operation_id = models.UUIDField(unique=True, default=uuid.uuid4)
-    categoria = models.ForeignKey(Categoria, on_delete=models.CASCADE, related_name='productos')
+    # D7: PROTECT en toda FK del dominio — nada se borra físicamente (R-17, baja lógica del Contrato).
+    categoria = models.ForeignKey(Categoria, on_delete=models.PROTECT, related_name='productos')
     nombre = models.CharField(max_length=150)
     tipo = models.CharField(max_length=30, choices=TIPO_CHOICES)
     precio_venta = models.DecimalField(max_digits=10, decimal_places=2)

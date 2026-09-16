@@ -1,6 +1,7 @@
 import uuid
 
 from django.db import IntegrityError, transaction
+from django.db.models import ProtectedError
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -50,6 +51,18 @@ class RestriccionesBDTests(TestCase):
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 Categoria.objects.create(nombre='Otra', operation_id=op_id)
+
+    def test_categoria_con_productos_no_se_puede_borrar(self):
+        # D7: toda FK del dominio usa PROTECT (R-17, baja lógica del Contrato).
+        Producto.objects.create(
+            categoria=self.categoria, nombre='Cafe', tipo='REVENTA_DIRECTA',
+            precio_venta=3500, unidad_medida='unidad',
+        )
+
+        with self.assertRaises(ProtectedError):
+            self.categoria.delete()
+
+        self.assertTrue(Categoria.objects.filter(id=self.categoria.id).exists())
 
 
 class CatalogoAPITestCase(TestCase):
