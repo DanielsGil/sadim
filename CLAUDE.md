@@ -75,7 +75,7 @@ También: `docs/INCONSISTENCIAS.md` (problemas conocidos, con ID), `docs/TRAZABI
 Actualizado el 11/09/2026: el repo se reorganizó en `backend/` (Django) y `frontend/` (Vite+React+TS) para encajar con el plan de commits del equipo. El `venv/` se queda en la raíz (no se movió).
 
 - Activar entorno (Windows), desde la raíz: `venv\Scripts\activate`.
-- Backend (Django, DRF, simplejwt, psycopg2-binary instalado pero aún sin usar — ver IMP-09), rutas relativas a la raíz del repo:
+- Backend (Django, DRF, simplejwt, psycopg2-binary sobre PostgreSQL), rutas relativas a la raíz del repo:
   - Verificar proyecto: `python backend/manage.py check`
   - Ver estado de migraciones: `python backend/manage.py showmigrations`
   - Comprobar si faltan migraciones (no crea nada): `python backend/manage.py makemigrations --check --dry-run`
@@ -86,8 +86,10 @@ Actualizado el 11/09/2026: el repo se reorganizó en `backend/` (Django) y `fron
   - Chequeo de tipos: `npx tsc --noEmit`
   - Lint: `npm run lint`
   - Build: `npm run build`
-- Sin `requirements.txt` todavía (ver IMP-10): generar con `pip freeze > requirements.txt` una vez decidido qué dependencias son necesarias, con aprobación previa.
-- `.env.example` creado en la raíz con variables previstas para Django/PostgreSQL; `backend/core/settings.py` **todavía no las lee** (SECRET_KEY, DEBUG y la BD siguen hardcodeados) — pendiente de decisión del equipo, no lo conectes sin pedirlo.
+- `requirements.txt` en la raíz con las dependencias directas (`pip install -r requirements.txt`).
+- `.env.example` en la raíz con las variables reales que lee `backend/core/settings.py` vía `python-dotenv` (única dependencia nueva agregada, aprobada para el cierre de Sprint 2): `SECRET_KEY`, `DEBUG`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`. `.env` (valores reales, no versionado) ya existe en la máquina de desarrollo.
+- PostgreSQL 18 instalado como servicio de Windows (`postgresql-x64-18`), rol `sadim` con `CREATEDB` (permite crear la BD de pruebas) y base de datos `sadim_db`; migraciones de `usuarios` e `inventario` aplicadas. IMP-09 resuelto.
+- `requirements.txt` en la raíz, solo dependencias directas: Django, djangorestframework, djangorestframework-simplejwt, psycopg2-binary, python-dotenv. IMP-10 (parte de requirements) resuelto.
 - Sin linter/formateador de backend instalado (ruff/flake8/black): decidir si se agrega.
 
 ## Qué NO hacer
