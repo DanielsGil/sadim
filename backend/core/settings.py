@@ -143,5 +143,7 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
+    # Contrato API §14 / IMP-07: toda respuesta de error es {code, message, details}.
+    'EXCEPTION_HANDLER': 'core.exceptions.manejador_de_excepciones',
 }
 AUTH_USER_MODEL = 'usuarios.Usuario'
