@@ -1,14 +1,14 @@
 # Evidencia — Cierre de Sprint 2 (SADIM)
 
-Generado el 16/09/2026 en la rama `cierre-sprint-2`, contra PostgreSQL 18 (`sadim_db` / `test_sadim_db`). Corresponde a HU-007..HU-012 e IMP-01..IMP-10 (`docs/INCONSISTENCIAS.md`, sección D).
+Generado el 16/09/2026 en la rama `cierre-sprint-2`, contra PostgreSQL 18 (`sadim_db` / `test_sadim_db`). Corresponde a HU-007..HU-012 e IMP-01..IMP-10 (`docs/INCONSISTENCIAS.md`, sección D). Actualizado el mismo día tras aplicar D7 (PROTECT) y D8 (password_hash).
 
 ## 1. Salida completa de las pruebas
 
-Comando: `python backend/manage.py test usuarios inventario -v 2`
+Comando: `python backend/manage.py test usuarios inventario -v 2` (equivalente a `cd backend && python manage.py test -v 2`, ver README §7).
 
 ```
 Creating test database for alias 'default' ('test_sadim_db')...
-Found 29 test(s).
+Found 30 test(s).
 Operations to perform:
   Synchronize unmigrated apps: messages, rest_framework, rest_framework_simplejwt, staticfiles
   Apply all migrations: admin, auth, contenttypes, inventario, sessions, usuarios
@@ -39,8 +39,10 @@ Running migrations:
   Applying inventario.0003_backfill_operation_id... OK
   Applying inventario.0004_operation_id_not_null_unique... OK
   Applying inventario.0005_producto_constraints... OK
+  Applying inventario.0006_alter_producto_categoria... OK
   Applying sessions.0001_initial... OK
   Applying usuarios.0002_usuario_rol_constraint... OK
+  Applying usuarios.0003_alter_usuario_password... OK
 test_login_devuelve_las_cuatro_claves (usuarios.tests.LoginRefreshTests.test_login_devuelve_las_cuatro_claves) ... ok
 test_login_password_incorrecta (usuarios.tests.LoginRefreshTests.test_login_password_incorrecta) ... ok
 test_login_usuario_inactivo_mismo_mensaje_generico (usuarios.tests.LoginRefreshTests.test_login_usuario_inactivo_mismo_mensaje_generico) ... ok
@@ -67,12 +69,13 @@ test_operador_no_puede_editar_categoria (inventario.tests.RBACTests.test_operado
 test_put_y_delete_no_permitidos_en_categorias (inventario.tests.RBACTests.test_put_y_delete_no_permitidos_en_categorias) ... ok
 test_put_y_delete_no_permitidos_en_productos (inventario.tests.RBACTests.test_put_y_delete_no_permitidos_en_productos) ... ok
 test_sin_token_devuelve_401_en_categorias_y_productos (inventario.tests.RBACTests.test_sin_token_devuelve_401_en_categorias_y_productos) ... ok
+test_categoria_con_productos_no_se_puede_borrar (inventario.tests.RestriccionesBDTests.test_categoria_con_productos_no_se_puede_borrar) ... ok
 test_operation_id_duplicado_rechazado (inventario.tests.RestriccionesBDTests.test_operation_id_duplicado_rechazado) ... ok
 test_precio_venta_negativo_rechazado (inventario.tests.RestriccionesBDTests.test_precio_venta_negativo_rechazado) ... ok
 test_producto_duplicado_en_misma_categoria_rechazado (inventario.tests.RestriccionesBDTests.test_producto_duplicado_en_misma_categoria_rechazado) ... ok
 
 ----------------------------------------------------------------------
-Ran 29 tests in 180.525s
+Ran 30 tests in 174.830s
 
 OK
 Destroying test database for alias 'default' ('test_sadim_db')...
@@ -80,7 +83,7 @@ Destroying test database for alias 'default' ('test_sadim_db')...
 System check identified no issues (0 silenced).
 ```
 
-Nota: los ~180s los explica casi por completo el hasher de contraseñas de Django (PBKDF2, ~600 000 iteraciones), invocado en cada login de cada prueba — es el costo esperado de un hash de contraseñas seguro, no una prueba lenta por diseño.
+Nota: los ~175s los explica casi por completo el hasher de contraseñas de Django (PBKDF2, ~600 000 iteraciones), invocado en cada login de cada prueba — es el costo esperado de un hash de contraseñas seguro, no una prueba lenta por diseño.
 
 ## 2. Ejemplos de solicitud y respuesta
 
