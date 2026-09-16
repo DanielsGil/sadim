@@ -182,3 +182,174 @@
 .cargando {
   padding: 24px;
 }
+
+/* Catálogo */
+
+.pagina-catalogo {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  max-width: 100%;
+}
+
+.encabezado-seccion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.encabezado-seccion button {
+  font: inherit;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.encabezado-seccion button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.lista-categorias {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lista-categorias li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.filtros-productos {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.filtros-productos select {
+  font: inherit;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.tabla-productos {
+  width: 100%;
+  border-collapse: collapse;
+  overflow-x: auto;
+  display: block;
+}
+
+.tabla-productos th,
+.tabla-productos td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.tabla-productos tr.fila-inactiva {
+  opacity: 0.55;
+}
+
+.celda-acciones {
+  display: flex;
+  gap: 8px;
+}
+
+.insignia-activo,
+.insignia-inactivo {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+.insignia-activo {
+  background: rgba(46, 204, 113, 0.15);
+  color: #1e8449;
+}
+
+.insignia-inactivo {
+  background: rgba(231, 76, 60, 0.12);
+  color: #c0392b;
+}
+
+.texto-vacio {
+  color: var(--text);
+  font-style: italic;
+}
+
+.formulario-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 360px;
+  margin-top: 16px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.formulario-panel label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.formulario-panel input,
+.formulario-panel select {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 6px;
+}
+
+.etiqueta-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-direction: row !important;
+}
+
+.campo-solo-lectura {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.acciones-formulario {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.acciones-formulario button {
+  font: inherit;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.acciones-formulario button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
