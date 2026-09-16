@@ -77,13 +77,25 @@ Respuesta esperada (201): `{"usuario_id": "...", "rol": "ADMIN"}`. Un segundo in
 
 ## 7. Ejecutar las pruebas
 
+Desde la raíz del repo (nombrando las apps):
+
 ```
 python backend/manage.py test usuarios inventario
 ```
 
+O, sin nombrar apps, parados dentro de `backend/`:
+
+```
+cd backend
+python manage.py test
+cd ..
+```
+
 Las pruebas corren contra PostgreSQL: Django crea y destruye automáticamente una base de datos temporal (`test_sadim_db`) usando el mismo rol de `.env`, por lo que ese rol necesita el permiso `CREATEDB` del paso 4.
 
-**Importante:** hay que nombrar las apps explícitamente (`usuarios inventario`, y las que se agreguen en Sprint 3). `python backend/manage.py test` sin argumentos, ejecutado desde la raíz del repo, reporta `Ran 0 tests`: Django descubre pruebas a partir del directorio de trabajo actual (`.`), no de `BASE_DIR`, y como `manage.py` vive en `backend/` mientras el comando se lanza desde la raíz, la búsqueda automática no encuentra nada. Pasar las apps por nombre evita el problema porque se resuelven contra `INSTALLED_APPS`, no contra el sistema de archivos.
+**Importante:** `python backend/manage.py test` sin argumentos, ejecutado desde la raíz del repo, reporta `Ran 0 tests`. La causa es que Django descubre pruebas a partir del directorio de trabajo actual (`.`), no de `BASE_DIR`: como el comando se lanza desde la raíz pero `manage.py` vive en `backend/`, la búsqueda automática no encuentra nada. Hay dos formas de evitarlo, ambas verificadas en este repo (30 pruebas descubiertas en los dos casos):
+- Nombrar las apps explícitamente (`test usuarios inventario`, y las que se agreguen en Sprint 3): se resuelven contra `INSTALLED_APPS`, no contra el sistema de archivos, así que funciona sin importar el directorio de trabajo.
+- Ejecutar el comando parado dentro de `backend/` (`cd backend && python manage.py test`): ahí el directorio de trabajo coincide con `BASE_DIR` y la búsqueda automática sí encuentra `usuarios/tests.py` e `inventario/tests.py`.
 
 ## Comandos útiles
 
