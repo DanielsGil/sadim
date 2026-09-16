@@ -78,10 +78,12 @@ Respuesta esperada (201): `{"usuario_id": "...", "rol": "ADMIN"}`. Un segundo in
 ## 7. Ejecutar las pruebas
 
 ```
-python backend/manage.py test
+python backend/manage.py test usuarios inventario
 ```
 
 Las pruebas corren contra PostgreSQL: Django crea y destruye automáticamente una base de datos temporal (`test_sadim_db`) usando el mismo rol de `.env`, por lo que ese rol necesita el permiso `CREATEDB` del paso 4.
+
+**Importante:** hay que nombrar las apps explícitamente (`usuarios inventario`, y las que se agreguen en Sprint 3). `python backend/manage.py test` sin argumentos, ejecutado desde la raíz del repo, reporta `Ran 0 tests`: Django descubre pruebas a partir del directorio de trabajo actual (`.`), no de `BASE_DIR`, y como `manage.py` vive en `backend/` mientras el comando se lanza desde la raíz, la búsqueda automática no encuentra nada. Pasar las apps por nombre evita el problema porque se resuelven contra `INSTALLED_APPS`, no contra el sistema de archivos.
 
 ## Comandos útiles
 

@@ -79,7 +79,7 @@ Actualizado el 11/09/2026: el repo se reorganizó en `backend/` (Django) y `fron
   - Verificar proyecto: `python backend/manage.py check`
   - Ver estado de migraciones: `python backend/manage.py showmigrations`
   - Comprobar si faltan migraciones (no crea nada): `python backend/manage.py makemigrations --check --dry-run`
-  - Ejecutar pruebas: `python backend/manage.py test` (hoy: 0 pruebas, ver IMP-08)
+  - Ejecutar pruebas: `python backend/manage.py test usuarios inventario` (nombrar las apps explícitamente: sin argumentos, desde la raíz, Django reporta `Ran 0 tests` porque descubre a partir del directorio de trabajo actual, no de `BASE_DIR`; ver detalle en README.md §7). IMP-08 resuelto: 29 pruebas entre `usuarios` e `inventario`.
 - Frontend (Vite + React + TypeScript, esqueleto inicial sin PWA/Service Worker todavía), desde `frontend/`:
   - Instalar dependencias: `npm install`
   - Servidor de desarrollo: `npm run dev`
