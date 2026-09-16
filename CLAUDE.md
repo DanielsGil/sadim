@@ -80,12 +80,14 @@ Actualizado el 11/09/2026: el repo se reorganizó en `backend/` (Django) y `fron
   - Ver estado de migraciones: `python backend/manage.py showmigrations`
   - Comprobar si faltan migraciones (no crea nada): `python backend/manage.py makemigrations --check --dry-run`
   - Ejecutar pruebas: `python backend/manage.py test usuarios inventario` desde la raíz, o `cd backend && python manage.py test` sin argumentos (ambas formas verificadas). Sin nombrar apps y desde la raíz, Django reporta `Ran 0 tests` porque descubre a partir del directorio de trabajo actual, no de `BASE_DIR`; ver detalle en README.md §7. IMP-08 resuelto: 30 pruebas entre `usuarios` e `inventario`.
-- Frontend (Vite + React + TypeScript, esqueleto inicial sin PWA/Service Worker todavía), desde `frontend/`:
+- Frontend (Vite + React + TypeScript; sin Service Worker todavía, HU-033/Sprint 4), desde `frontend/`:
   - Instalar dependencias: `npm install`
-  - Servidor de desarrollo: `npm run dev`
+  - Servidor de desarrollo: `npm run dev` (con el backend corriendo en :8000; el proxy de Vite redirige `/api/*`, sin CORS en el backend)
   - Chequeo de tipos: `npx tsc --noEmit`
   - Lint: `npm run lint`
   - Build: `npm run build`
+  - Dependencias nuevas (cierre de Sprint 2, frontend): `dexie` (persistencia local, ERD D-09; solo el almacén `meta` implementado, sesión) y `react-router-dom` (rutas y navegación). La sesión vive únicamente en IndexedDB vía Dexie, nunca en `localStorage`.
+  - HU-008 (login/logout) y HU-011 (Catálogo, solo ADMIN) implementadas; HU-013 en adelante (Sprint 3) pendientes — el OPERADOR aún no tiene pantallas propias más allá de Inicio.
 - `requirements.txt` en la raíz con las dependencias directas (`pip install -r requirements.txt`).
 - `.env.example` en la raíz con las variables reales que lee `backend/core/settings.py` vía `python-dotenv` (única dependencia nueva agregada, aprobada para el cierre de Sprint 2): `SECRET_KEY`, `DEBUG`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`. `.env` (valores reales, no versionado) ya existe en la máquina de desarrollo.
 - PostgreSQL 18 instalado como servicio de Windows (`postgresql-x64-18`), rol `sadim` con `CREATEDB` (permite crear la BD de pruebas) y base de datos `sadim_db`; migraciones de `usuarios` e `inventario` aplicadas. IMP-09 resuelto.

@@ -107,4 +107,28 @@ Las pruebas corren contra PostgreSQL: Django crea y destruye automáticamente un
 
 ## Frontend
 
-El frontend (Vite + React + TypeScript) tiene sus propias instrucciones en `frontend/README.md`.
+PWA con Vite + React + TypeScript. Todavía sin Service Worker (HU-033, Sprint 4) ni funcionalidad de Sprint 3 (ventas, mesas, órdenes de trabajo): por ahora solo inicio de sesión y catálogo (HU-008, HU-011).
+
+1. Instalar dependencias (una sola vez):
+   ```
+   cd frontend
+   npm install
+   ```
+
+2. Con el backend corriendo (`python backend/manage.py runserver`, puerto 8000 — ver arriba), levantar el servidor de desarrollo del frontend:
+   ```
+   npm run dev
+   ```
+   Abre `http://localhost:5173`. El proxy de Vite (`vite.config.ts`) redirige `/api/*` a `http://localhost:8000`, así que el backend no necesita configurar CORS.
+
+3. Para entrar necesitas un usuario. Si la instalación todavía no tiene ninguno, créalo con `/api/auth/register/` (paso 6 de la sección Backend); ese primer usuario siempre es ADMIN. Los operadores se crean después con `/api/usuarios/` (Sprint 3, HU-044) — por ahora, para tener un OPERADOR de prueba, créalo desde `python backend/manage.py shell` con `Usuario.objects.create_user(...)`.
+
+4. La sesión (`access_token`, `refresh_token`, `usuario_id`, `rol`) se guarda con Dexie en IndexedDB (almacén `meta`, ERD §10), nunca en `localStorage`. "Cerrar sesión" en la barra lateral la borra.
+
+5. Otros comandos, desde `frontend/`:
+
+   | Comando | Qué hace |
+   |---|---|
+   | `npm run build` | Compila TypeScript (`tsc -b`) y genera la build de producción con Vite. |
+   | `npx tsc --noEmit` | Solo revisa tipos, sin compilar. |
+   | `npm run lint` | Corre Oxlint. |
