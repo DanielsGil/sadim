@@ -27,9 +27,21 @@ class CategoriaSerializer(OperationIdInmutableMixin, serializers.ModelSerializer
 
 
 class ProductoSerializer(OperationIdInmutableMixin, serializers.ModelSerializer):
+    # Contrato §6 / ERD §5.6: el campo se llama categoria_id en la solicitud
+    # y la respuesta. El modelo y la columna de BD siguen llamándose
+    # "categoria" (Django ya la mapea a la columna física "categoria_id");
+    # esto solo cambia el nombre expuesto por la API.
+    categoria_id = serializers.PrimaryKeyRelatedField(
+        source='categoria', queryset=Categoria.objects.all(),
+    )
+
     class Meta:
         model = Producto
-        fields = '__all__'
+        fields = [
+            'id', 'operation_id', 'categoria_id', 'nombre', 'tipo',
+            'precio_venta', 'costo_produccion', 'stock_actual', 'stock_minimo',
+            'controla_stock', 'unidad_medida', 'activo',
+        ]
         read_only_fields = ['stock_actual']
 
     def to_representation(self, instance):
