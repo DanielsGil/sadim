@@ -1,6 +1,7 @@
 import uuid
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 class UsuarioManager(BaseUserManager):
@@ -40,6 +41,20 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
 
     USERNAME_FIELD = 'username'
     REQUIRED_FIELDS = ['nombre_completo']
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(rol__in=['ADMIN', 'OPERADOR']),
+                name='usuario_rol_valido',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        # ERD §5.1: un usuario con activo = false no puede autenticarse.
+        # is_active es lo que revisan authenticate() y las permission classes de DRF.
+        self.is_active = self.activo
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.username
