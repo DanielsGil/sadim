@@ -79,9 +79,29 @@ Ruta base: /api/usuarios/
 
 | Método | Endpoint | Rol requerido | Descripción |
 | --- | --- | --- | --- |
-| GET | /api/usuarios/ | ADMIN | Lista los usuarios de la instalación. |
-| POST | /api/usuarios/ | ADMIN | Crea un nuevo usuario Operador. |
-| PATCH | /api/usuarios/{id}/ | ADMIN | Edita datos permitidos o cambia activo para realizar una baja lógica. |
+| GET | /api/usuarios/ | ADMIN | Lista los usuarios de la instalación (CU-18). |
+| POST | /api/usuarios/ | ADMIN | Crea un nuevo usuario Operador (CU-18). |
+| PATCH | /api/usuarios/{id}/ | ADMIN | Edita datos permitidos o cambia activo para realizar una baja lógica (CU-18). |
+
+No existe DELETE: la baja es lógica mediante activo. Un usuario con activo = false conserva su historial y no puede iniciar sesión. El backend rechaza la operación que dejaría la instalación sin ningún ADMIN activo (R-04). La creación de usuarios y el cambio de contraseña requieren conexión (E-02).
+
+# 4.1 Dispositivos
+
+Ruta base: /api/dispositivos/
+
+| Método | Endpoint | Rol requerido | Descripción |
+| --- | --- | --- | --- |
+| GET | /api/dispositivos/ | ADMIN | Lista los dispositivos registrados y cuál está autorizado offline (CU-21). |
+| POST | /api/dispositivos/ | ADMIN | Registra un dispositivo con su identificador, el UUID generado por la PWA (CU-21). |
+| PATCH | /api/dispositivos/{id}/ | ADMIN | Marca es_caja, autoriza el dispositivo o lo desactiva. Requiere conexión (E-04). |
+
+### Ejemplo — autorizar dispositivo (CU-21)
+
+{
+  "autorizado_offline": true
+}
+
+Al autorizar un dispositivo, el servidor revoca automáticamente cualquier otro con autorizado_offline = true: solo uno puede operar sin conexión (D-04). Un dispositivo se desactiva, nunca se elimina, para conservar su historial de sincronización.
 
 # 5. Categorías
 
@@ -90,8 +110,10 @@ Ruta base: /api/categorias/
 | Método | Endpoint | Rol requerido | Descripción |
 | --- | --- | --- | --- |
 | GET | /api/categorias/ | ADMIN, OPERADOR | Lista las categorías del catálogo. |
-| POST | /api/categorias/ | ADMIN | Crea una categoría (CU-05). |
+| POST | /api/categorias/ | ADMIN | Crea una categoría (CU-05). Acepta operation_id: la creación puede originarse sin conexión (R-30). |
 | PATCH | /api/categorias/{id}/ | ADMIN | Edita el nombre de una categoría. |
+
+No existe DELETE en el catálogo.
 
 # 6. Productos
 
@@ -112,17 +134,23 @@ Ruta base: /api/productos/
   "tipo": "REVENTA_DIRECTA",
   "precio_venta": 3500.00,
   "unidad_medida": "unidad",
-  "stock_minimo": 10
+  "stock_minimo": 10,
+  "controla_stock": true
 }
 
 // Response 201
 {
   "id": "f21c...",
   "stock_actual": 0,
+  "controla_stock": true,
   "activo": true
 }
 
 El cliente no envía stock_actual como valor editable. Los ingresos y ajustes de inventario se realizan mediante MovimientoInventario.
+
+controla_stock indica si el producto lleva existencias propias. En false —un preparado al momento— su venta no valida ni descuenta stock y el producto queda fuera de las alertas de stock mínimo; sus insumos se controlan como productos independientes. SADIM no modela recetas.
+
+La baja de un producto es lógica: PATCH con activo = false. No existe DELETE.
 
 # 7. Ventas — venta rápida y sesiones dinámicas
 
@@ -134,7 +162,8 @@ Ruta base: /api/ventas/
 | POST | /api/ventas/ | ADMIN, OPERADOR | Crea una venta rápida o abre una sesión dinámica (CU-01, CU-02). |
 | POST | /api/ventas/{id}/detalles/ | ADMIN, OPERADOR | Agrega un producto a una venta/sesión (CU-03). |
 | DELETE | /api/ventas/{id}/detalles/{detalle_id}/ | ADMIN, OPERADOR | Quita una línea mientras la venta permanezca ABIERTA. |
-| PATCH | /api/ventas/{id}/cerrar/ | ADMIN, OPERADOR | Cierra la venta/sesión, confirma el medio de pago y genera los efectos correspondientes (CU-04). |
+| PATCH | /api/ventas/{id}/cerrar/ | ADMIN, OPERADOR | Cierra la venta/sesión, registra el medio de pago y genera los efectos correspondientes (CU-04). |
+| PATCH | /api/ventas/{id}/cancelar/ | ADMIN, OPERADOR | Cancela una venta o sesión en estado ABIERTA, sin generar efectos, y libera la mesa (CU-04 alterno). |
 
 ### Ejemplo — abrir sesión dinámica
 
@@ -180,12 +209,43 @@ Ruta base: /api/ventas/
   "id": "7f31...",
   "estado": "CERRADA",
   "total": 17500.00,
+  "medio_pago": "EFECTIVO",
+  "estado_pago": "CONFIRMADO",
   "mesa_id": "4c22..."
 }
 
-Una sesión ABIERTA puede acumular detalles sin generar todavía el movimiento definitivo de salida de inventario. Al cerrar una venta, el backend genera los movimientos de inventario correspondientes y exactamente un MovimientoCaja de tipo INGRESO_VENTA. La mesa queda disponible.
+Una sesión ABIERTA puede acumular detalles sin generar todavía el movimiento definitivo de salida de inventario. Al cerrar una venta, el backend genera los movimientos de inventario de los productos con controla_stock = true y exactamente un MovimientoCaja de tipo INGRESO_VENTA. La mesa queda disponible.
 
-Para medios electrónicos como TRANSFERENCIA o QR, la confirmación del pago requiere conectividad. Una operación en efectivo puede registrarse offline y sincronizarse posteriormente.
+El cierre con EFECTIVO devuelve estado_pago = CONFIRMADO. Con TRANSFERENCIA o QR devuelve PENDIENTE_VERIFICACION: el cobro queda registrado y se muestra al cliente la referencia de /api/configuracion/pagos/, pero solo un usuario con conexión puede confirmarlo (D-06, E-01). Un movimiento pendiente de verificación no entra en ningún cierre de caja (R-22).
+
+La cancelación solo aplica a ventas en estado ABIERTA; sobre una venta CERRADA se rechaza con VENTA_YA_CERRADA. La venta cancelada no genera movimientos de inventario ni de caja y la mesa vuelve a DISPONIBLE (R-11).
+
+# 7.1 Mesas
+
+Ruta base: /api/mesas/
+
+| Método | Endpoint | Rol requerido | Descripción |
+| --- | --- | --- | --- |
+| GET | /api/mesas/?activa= | ADMIN, OPERADOR | Lista las mesas con su número y estado; alimenta el mapa de mesas (CU-02, CU-19). |
+| POST | /api/mesas/ | ADMIN | Registra una mesa (CU-19). |
+| PATCH | /api/mesas/{id}/ | ADMIN | Activa o desactiva una mesa (CU-19). |
+
+### Ejemplo — registrar mesa (CU-19)
+
+{
+  "operation_id": "7b40...",
+  "numero": 7
+}
+
+// Response 201
+{
+  "id": "4c22...",
+  "numero": 7,
+  "estado": "DISPONIBLE",
+  "activa": true
+}
+
+La gestión de mesas puede originarse sin conexión, por lo que POST acepta operation_id (R-30). El backend revalida el límite de quince mesas activas: en línea responde 409 y, al sincronizar, registra el conflicto LIMITE_MESAS_EXCEDIDO. Una mesa con estado = OCUPADA no puede desactivarse. No existe DELETE: las mesas se desactivan para conservar el historial de sesiones. El estado DISPONIBLE u OCUPADA es derivado y el cliente no lo escribe.
 
 # 8. Órdenes de trabajo
 
@@ -232,7 +292,9 @@ Ruta base: /api/ordenes-trabajo/
   "estado": "PENDIENTE"
 }
 
-Una orden puede tener múltiples Abonos. Cada Abono confirmado genera exactamente un MovimientoCaja de tipo INGRESO_ABONO. Los ConsumoOrden permanecen PENDIENTES hasta la finalización/entrega de la orden; al aplicar el consumo se generan los movimientos de salida de inventario correspondientes.
+La utilidad neta que devuelve GET /api/ordenes-trabajo/{id}/costos/ se calcula en el backend como costo_total menos la suma de los CostoOperativoOrden de la orden (CU-10). No incluye el valor de los insumos consumidos, que se controla en el módulo de Inventario.
+
+Una orden puede tener múltiples Abonos. Cada Abono genera exactamente un MovimientoCaja de tipo INGRESO_ABONO, con estado_pago = CONFIRMADO en efectivo y PENDIENTE_VERIFICACION con TRANSFERENCIA o QR. Los ConsumoOrden permanecen PENDIENTES hasta la finalización/entrega de la orden; al aplicar el consumo se generan los movimientos de salida de inventario correspondientes.
 
 # 9. Inventario
 
@@ -241,7 +303,7 @@ Ruta base: /api/inventario/movimientos/
 | Método | Endpoint | Rol requerido | Descripción |
 | --- | --- | --- | --- |
 | GET | /api/inventario/movimientos/?producto= | ADMIN, OPERADOR | Consulta el historial de movimientos de un producto. |
-| POST | /api/inventario/movimientos/ | ADMIN, OPERADOR para ENTRADA; ADMIN para MERMA/AJUSTE_MANUAL | Registra un movimiento de inventario (CU-12, CU-13). |
+| POST | /api/inventario/movimientos/ | ADMIN, OPERADOR para ENTRADA; ADMIN para MERMA/AJUSTE_MANUAL | Registra un movimiento de inventario (CU-12, CU-13). Para AJUSTE_MANUAL exige sentido. |
 | GET | /api/inventario/stock/ | ADMIN, OPERADOR | Consulta el stock actual y los productos en o por debajo del stock mínimo (CU-11). |
 
 ### Ejemplo — ingreso de mercancía (CU-12)
@@ -254,7 +316,22 @@ Ruta base: /api/inventario/movimientos/
   "motivo": "Compra de mercancía"
 }
 
+### Ejemplo — ajuste manual (CU-13)
+
+{
+  "operation_id": "51a1...",
+  "producto_id": "f21c...",
+  "tipo": "AJUSTE_MANUAL",
+  "sentido": "RESTA",
+  "cantidad": 2,
+  "motivo": "Conteo físico: faltaban dos unidades"
+}
+
+cantidad es siempre positiva. El signo del movimiento lo determina el tipo y, en AJUSTE_MANUAL, el campo sentido (SUMA o RESTA), que es obligatorio en ese tipo y no se envía en los demás. motivo es obligatorio para MERMA y AJUSTE_MANUAL.
+
 Las salidas originadas por ventas y servicios no deben registrarse manualmente mediante este endpoint: se generan como efecto de las operaciones correspondientes. Los movimientos históricos no se editan; las correcciones se representan mediante nuevos movimientos de ajuste.
+
+Los productos con controla_stock = false no llevan existencias propias: no aparecen en las alertas de stock mínimo de /api/inventario/stock/ y no generan salidas al venderse.
 
 # 10. Movimientos de caja y gastos
 
@@ -264,11 +341,12 @@ Ruta base: /api/movimientos-caja/
 | --- | --- | --- | --- |
 | GET | /api/movimientos-caja/?fecha_desde=&fecha_hasta=&tipo= | ADMIN | Consulta el detalle histórico de movimientos de caja. |
 | POST | /api/movimientos-caja/ | ADMIN, OPERADOR | Registra un gasto de caja (CU-14). |
+| GET | /api/movimientos-caja/resumen/?fecha= | ADMIN | Resumen del día calculado por el backend: ingresos por ventas, ingresos por abonos, gastos y neto, discriminados por medio de pago (CU-20). |
 
 ### Ejemplo — registrar gasto hormiga (CU-14)
 
 {
-  "operation_id": "g311...",
+  "operation_id": "a311...",
   "tipo": "GASTO",
   "medio_pago": "EFECTIVO",
   "valor": 3500.00,
@@ -282,7 +360,26 @@ Ruta base: /api/movimientos-caja/
   "valor": 3500.00
 }
 
+### Ejemplo — resumen diario (CU-20)
+
+// GET /api/movimientos-caja/resumen/?fecha=2026-08-22 — Response 200
+{
+  "fecha": "2026-08-22",
+  "ingresos_ventas": 200000.00,
+  "ingresos_abonos": 26000.00,
+  "gastos": 3500.00,
+  "neto": 222500.00,
+  "por_medio_pago": {
+    "EFECTIVO": 150000.00,
+    "TRANSFERENCIA": 76000.00,
+    "QR": 0.00
+  },
+  "pendiente_verificacion": 26000.00
+}
+
 Los movimientos INGRESO_VENTA e INGRESO_ABONO son generados por el sistema como consecuencia de las operaciones de venta y abono; el cliente no debe crearlos manualmente. El gasto sí se registra mediante este recurso. Cada venta cerrada tiene un único movimiento de caja asociado.
+
+Los totales del resumen los calcula el backend y no se derivan en el cliente. pendiente_verificacion informa el importe con estado_pago = PENDIENTE_VERIFICACION, que todavía no puede incorporarse a un cierre (R-22).
 
 # 11. Cierre de caja
 
@@ -297,6 +394,7 @@ Ruta base: /api/cierres-caja/
 
 {
   "fecha": "2026-08-22",
+  "efectivo_contado": 150000.00,
   "observaciones": "Sin novedades"
 }
 
@@ -304,12 +402,18 @@ Ruta base: /api/cierres-caja/
 {
   "id": "c921...",
   "fecha": "2026-08-22",
-  "total_ingresos": 226000.00,
+  "total_ingresos_ventas": 200000.00,
+  "total_ingresos_abonos": 26000.00,
   "total_gastos": 0.00,
-  "total_neto": 226000.00
+  "total_neto": 226000.00,
+  "efectivo_esperado": 150000.00,
+  "efectivo_contado": 150000.00,
+  "diferencia": 0.00
 }
 
-Los totales no se envían desde el cliente. El servidor los calcula a partir de los movimientos de caja incluidos en el período. CierreCaja funciona como resumen/corte; MovimientoCaja conserva el detalle histórico.
+El cierre requiere conexión y solo incluye movimientos con estado_pago = CONFIRMADO (R-22); los pendientes de verificación se incorporan al cierre siguiente. El servidor rechaza el cierre si quedan operaciones pendientes de sincronizar (E-05).
+
+Los totales no se envían desde el cliente: el servidor los calcula a partir de los movimientos del período y los asocia al cierre mediante cierre_caja_id. efectivo_contado sí lo aporta el Administrador durante el arqueo, y diferencia es efectivo_contado menos efectivo_esperado; observaciones es obligatorio cuando la diferencia no es cero. CierreCaja funciona como resumen/corte; MovimientoCaja conserva el detalle histórico.
 
 # 12. Configuración de módulos
 
@@ -317,7 +421,7 @@ Ruta base: /api/configuracion/modulos/
 
 | Método | Endpoint | Rol requerido | Descripción |
 | --- | --- | --- | --- |
-| GET | /api/configuracion/modulos/ | ADMIN | Consulta el estado de los módulos de la instalación. |
+| GET | /api/configuracion/modulos/ | ADMIN, OPERADOR | Consulta el estado de los módulos de la instalación. La lectura es necesaria para que la interfaz del Operador sepa qué ocultar. |
 | PATCH | /api/configuracion/modulos/ | ADMIN | Activa o desactiva Ventas, Inventario, Servicios o Finanzas (CU-16). |
 
 ### Ejemplo — configuración de módulos
@@ -329,15 +433,39 @@ Ruta base: /api/configuracion/modulos/
   "finanzas_activo": false
 }
 
-Desactivar un módulo no elimina datos ni código. El frontend oculta sus funcionalidades y el backend rechaza las operaciones correspondientes mientras permanezca desactivado.
+Desactivar un módulo no elimina datos ni código. El frontend oculta sus funcionalidades y el backend rechaza las operaciones correspondientes mientras permanezca desactivado, incluidas las que lleguen por sincronización, con el código MODULO_DESACTIVADO.
+
+# 12.1 Configuración de pagos
+
+Ruta base: /api/configuracion/pagos/
+
+| Método | Endpoint | Rol requerido | Descripción |
+| --- | --- | --- | --- |
+| GET | /api/configuracion/pagos/ | ADMIN, OPERADOR | Consulta los medios aceptados y la referencia Nequi a mostrar al cliente (CU-22). |
+| PATCH | /api/configuracion/pagos/ | ADMIN | Modifica los medios aceptados y la llave Nequi. Requiere conexión (E-03, D-06). |
+
+### Ejemplo — configuración de pagos (CU-22)
+
+{
+  "acepta_transferencia": true,
+  "acepta_qr": true,
+  "nequi_titular": "Aroma & Co.",
+  "nequi_llave": "3001234567"
+}
+
+SADIM no integra pasarela de pagos: la llave Nequi es un dato de referencia que se muestra al cliente y que el sistema nunca consulta ni valida. Es obligatoria si acepta_transferencia o acepta_qr están en true. El Operador necesita la lectura para mostrar la referencia al cobrar; solo el ADMIN la modifica (R-29).
 
 # 13. Sincronización offline
 
-La API debe soportar la recepción de operaciones creadas localmente por la PWA. El cliente mantiene las operaciones pendientes en IndexedDB y las envía al recuperar conectividad.
+La API debe soportar la recepción de operaciones creadas localmente por la PWA. El cliente mantiene las operaciones pendientes en IndexedDB y las envía al recuperar conectividad, en el mismo orden en que fueron creadas.
+
+Cada solicitud debe incluir el encabezado X-Device-Id con el identificador del dispositivo (D-04). Si no corresponde a un dispositivo activo y autorizado para offline, se rechaza el lote completo con DISPOSITIVO_NO_AUTORIZADO.
 
 | Método | Endpoint | Rol requerido | Descripción |
 | --- | --- | --- | --- |
 | POST | /api/sync/ | Autenticado | Recibe una o varias operaciones pendientes y las procesa de forma idempotente mediante operation_id. |
+| GET | /api/sync/novedades/?atendida=false | ADMIN, OPERADOR | Lista las operaciones con estado RECHAZADA o CONFLICTO pendientes de revisión (CU-23). |
+| PATCH | /api/sync/novedades/{id}/ | ADMIN, OPERADOR | Marca una novedad como atendida (CU-23). |
 
 ### Ejemplo — operación pendiente
 
@@ -361,12 +489,15 @@ La API debe soportar la recepción de operaciones creadas localmente por la PWA.
   "results": [
     {
       "operation_id": "d921...",
-      "status": "APPLIED"
+      "estado": "APLICADA",
+      "objeto_id": "a812..."
     }
   ]
 }
 
-Si el operation_id ya fue procesado, el servidor debe devolver el resultado previamente registrado o un estado equivalente a ALREADY_PROCESSED, sin volver a aplicar la operación. Los conflictos de operaciones transaccionales no se resuelven mediante Last Write Wins; se validan según las reglas de negocio y el estado actual de la información.
+Los valores posibles de estado son APLICADA, DUPLICADA, RECHAZADA y CONFLICTO (sección 8.2 del ERD). Cuando el estado es RECHAZADA o CONFLICTO, la respuesta incluye además codigo_conflicto y mensaje. Si el operation_id ya fue procesado, el servidor devuelve el resultado previamente registrado con estado DUPLICADA, sin volver a aplicar la operación.
+
+Toda operación recibida queda registrada en OperacionSincronizacion, incluidas las rechazadas o en conflicto, para que el usuario las revise (R-33). Los conflictos de operaciones transaccionales no se resuelven mediante Last Write Wins: se validan según las reglas de negocio y el estado actual de la información, y su corrección es siempre una operación nueva y trazable.
 
 # 14. Códigos HTTP y errores
 
@@ -386,7 +517,7 @@ Si el operation_id ya fue procesado, el servidor debe devolver el resultado prev
 ### Ejemplo de error
 
 {
-  "code": "INSUFFICIENT_STOCK",
+  "code": "STOCK_INSUFICIENTE",
   "message": "No hay existencias suficientes para completar la operación.",
   "details": {
     "producto_id": "f21c...",
@@ -395,6 +526,24 @@ Si el operation_id ya fue procesado, el servidor debe devolver el resultado prev
   }
 }
 
+El campo code proviene de un catálogo cerrado, compartido con la sección 8.4 del ERD. Es el mismo valor que devuelve /api/sync/ en codigo_conflicto, de modo que una operación en línea y la misma operación sincronizada producen el código idéntico.
+
+| Código | Estado en sincronización | HTTP | Situación que lo produce |
+| --- | --- | --- | --- |
+| DISPOSITIVO_NO_AUTORIZADO | RECHAZADA | 403 | El X-Device-Id no corresponde a un dispositivo activo y autorizado. Se rechaza el lote completo. |
+| PERMISO_INSUFICIENTE | RECHAZADA | 403 | El rol del usuario no permite la operación. |
+| MODULO_DESACTIVADO | RECHAZADA | 403 | El módulo al que pertenece el recurso está desactivado. |
+| DATOS_INVALIDOS | RECHAZADA | 400 | El contenido no cumple la estructura o las validaciones de campo. |
+| PAGO_NO_VERIFICABLE | RECHAZADA | 400 | Se intenta sincronizar un pago electrónico marcado como confirmado sin confirmación en línea. |
+| STOCK_INSUFICIENTE | CONFLICTO | 409 | Las existencias del servidor ya no alcanzan para aplicar la salida. |
+| PRODUCTO_INACTIVO | CONFLICTO | 409 | El producto fue desactivado mientras el dispositivo estaba sin conexión. |
+| VENTA_YA_CERRADA | CONFLICTO | 409 | Se intenta modificar, cerrar o cancelar una venta que ya está CERRADA o CANCELADA. |
+| MESA_OCUPADA | CONFLICTO | 409 | Se intenta abrir una sesión en una mesa con sesión ABIERTA, o desactivar una mesa OCUPADA. |
+| LIMITE_MESAS_EXCEDIDO | CONFLICTO | 409 | La operación superaría las quince mesas activas permitidas. |
+| ORDEN_YA_ENTREGADA | CONFLICTO | 409 | Se intenta registrar un consumo o un cambio de estado sobre una orden ya ENTREGADO. |
+| ABONO_EXCEDE_SALDO | CONFLICTO | 409 | El abono supera el saldo pendiente de la orden. |
+| MOVIMIENTO_EN_PERIODO_CERRADO | CONFLICTO | 409 | El movimiento corresponde a un período con CierreCaja ya realizado. |
+
 # 15. Trazabilidad con los artefactos anteriores
 
 | Artefacto | Decisión / caso | Reflejo en API |
@@ -402,16 +551,22 @@ Si el operation_id ya fue procesado, el servidor debe devolver el resultado prev
 | ADR-001 | PostgreSQL | Persistencia relacional del backend. |
 | ADR-002 | Monolito modular + DRF | API REST única organizada por recursos/módulos. |
 | ADR-004 | Offline-first | UUID, operation_id, /api/sync/ e idempotencia. |
+| ADR-004 | Un solo dispositivo offline | /api/dispositivos/ y encabezado X-Device-Id. |
+| D-06 | Pagos sin pasarela | /api/configuracion/pagos/ y estado_pago en ventas, abonos y movimientos. |
 | ADR-005 | RBAC | ADMIN/OPERADOR aplicado en permission classes. |
 | ADR-006 | Módulos configurables | /api/configuracion/modulos/. |
 | ADR-007 | Un negocio por instalación | No se expone business_id/tenant_id en los recursos del alcance actual. |
 | ADR-008 | MovimientoCaja | Ventas y abonos generan ingresos; gastos se registran explícitamente. |
-| CU-01 a CU-05 | Ventas | /api/ventas/ y recursos de catálogo. |
+| CU-01 a CU-05, CU-19 | Ventas | /api/ventas/, /api/mesas/ y recursos de catálogo. |
 | CU-06 a CU-10 | Servicios | /api/ordenes-trabajo/, abonos, consumos y costos. |
 | CU-11 a CU-13 | Inventario | /api/inventario/ y movimientos. |
-| CU-14 a CU-15 | Finanzas | /api/movimientos-caja/ y /api/cierres-caja/. |
-| CU-16 | Configuración | /api/configuracion/modulos/. |
+| CU-14, CU-15, CU-20 | Finanzas | /api/movimientos-caja/, su resumen y /api/cierres-caja/. |
+| CU-16 | Configuración de módulos | /api/configuracion/modulos/. |
 | CU-17 | Autenticación | /api/auth/register/, login y refresh. |
+| CU-18 | Gestión de usuarios | /api/usuarios/. |
+| CU-21 | Dispositivos autorizados | /api/dispositivos/. |
+| CU-22 | Medios de pago | /api/configuracion/pagos/. |
+| CU-23 | Novedades de sincronización | /api/sync/novedades/. |
 
 # 16. Límites del contrato inicial
 

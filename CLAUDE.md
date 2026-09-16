@@ -13,12 +13,13 @@ Documentos aprobados en `docs/referencia/` (no los modifiques; los actualiza el 
 
 | Documento | Úsalo para |
 |---|---|
-| `01_ADR_Arquitectura.md` | Decisiones ADR-001..ADR-008 |
-| `02_ERD.md` | Nombres exactos de entidades, campos, tipos, restricciones (§4) y reglas de negocio (§5) |
-| `03_Casos_de_Uso.md` | CU-01..CU-17: actores, flujos, excepciones, comportamiento offline |
-| `05_Contrato_API.md` | Rutas, métodos, roles y JSON exactos; formato de error (§14) |
+| `01_ADR_Arquitectura_SADIM.md` | Decisiones ADR-001..ADR-008 |
+| `02_ERD_SADIM_v3.md` | Nombres exactos de entidades, campos, tipos, restricciones (§5, diccionario lógico) y reglas de negocio (§7, R-01..R-33). Versión 3: conserva la v2 y la precisa con las decisiones D-01..D-10 (§2) |
+| `03_Casos_de_Uso_SADIM.md` | CU-01..CU-23: actores, flujos, excepciones, comportamiento offline |
+| `04_Wireframes_SADIM_v2.md` | Referencia visual de pantallas/mockups de la PWA (contexto de interfaz, no especificación de API) |
+| `05_Contrato_API_SADIM.md` | Rutas, métodos, roles y JSON exactos; formato de error (§14) |
 | `Backlog_Definitivo.md` | HU-XXX, sprint, criterios de aceptación |
-| `00_Anteproyecto.md` | Alcance, objetivos y exclusiones (contexto, no especificación técnica) |
+| `00_Anteproyecto.md` | Alcance, objetivos y exclusiones (contexto, no especificación técnica). No se encontró una versión v2 en `.docx` para convertir; si aparece, avisar antes de reemplazar este documento. |
 
 También: `docs/INCONSISTENCIAS.md` (problemas conocidos, con ID), `docs/TRAZABILIDAD.md` (matriz HU ↔ CU) y `docs/GUIA_CAMBIOS_DOCUMENTOS.md` (correcciones definidas pero aún no aplicadas a los documentos).
 

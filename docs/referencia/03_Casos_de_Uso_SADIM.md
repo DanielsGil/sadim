@@ -8,9 +8,9 @@ Bogotá, Colombia · 2026
 
 # Criterio de priorización
 
-Las prioridades se asignan según la relación de cada caso de uso con las funciones núcleo del alcance del anteproyecto y con la continuidad operativa offline-first. Los casos de prioridad Alta representan funciones necesarias para la operación diaria o para el control básico del negocio. Los casos de prioridad Media complementan la trazabilidad, administración y control, pero pueden desarrollarse después de los flujos operativos principales. Se documentan 17 casos de uso agrupados en los tres módulos funcionales y un caso transversal de autenticación.
+Las prioridades se asignan según la relación de cada caso de uso con las funciones núcleo del alcance del anteproyecto y con la continuidad operativa offline-first. Los casos de prioridad Alta representan funciones necesarias para la operación diaria o para el control básico del negocio. Los casos de prioridad Media complementan la trazabilidad, administración y control, pero pueden desarrollarse después de los flujos operativos principales. Se documentan 23 casos de uso: diecisiete agrupados en los tres módulos funcionales y seis transversales de autenticación, configuración y administración de la instalación.
 
-Para la columna de conexión se distingue entre operaciones que pueden ejecutarse localmente y operaciones cuya confirmación externa depende de conectividad. En particular, las operaciones en efectivo pueden registrarse offline; los pagos electrónicos requieren conectividad para confirmar su estado.
+Para la columna de conexión se distingue entre operaciones que pueden ejecutarse localmente y operaciones cuyo resultado depende del servidor. Un cobro por TRANSFERENCIA o QR sí puede registrarse sin conexión, pero queda con estado_pago = PENDIENTE_VERIFICACION hasta que un usuario compruebe la recepción en línea; solo el efectivo se confirma de inmediato (D-06). Las operaciones que siempre requieren conexión son las excepciones E-01 a E-05 del ERD: confirmar un pago electrónico, autenticarse por primera vez y gestionar credenciales, modificar los medios de pago, autorizar dispositivos y confirmar un cierre de caja.
 
 # Módulo 1 — Gestión de Ventas Diarias y Consumo Inmediato
 
@@ -21,8 +21,9 @@ Cubre la venta rápida de mostrador, las sesiones dinámicas de mesa y la config
 | CU-01 | Registrar venta rápida de mostrador | Operador, Administrador | Alta | No (offline-first) |
 | CU-02 | Abrir sesión dinámica de mesa | Operador, Administrador | Alta | No (offline-first) |
 | CU-03 | Registrar consumo en sesión dinámica | Operador, Administrador | Alta | No (offline-first) |
-| CU-04 | Cerrar sesión dinámica y cobrar | Operador, Administrador | Alta | Parcial: efectivo offline; electrónico requiere conexión |
+| CU-04 | Cerrar sesión dinámica y cobrar | Operador, Administrador | Alta | Parcial: el cobro se registra offline; confirmar un pago electrónico requiere conexión (E-01) |
 | CU-05 | Configurar catálogo de productos y precios | Administrador | Alta | No (offline-first; sincronización posterior) |
+| CU-19 | Gestionar mesas del local | Administrador | Alta | No (offline-first; sincronización posterior) |
 
 ## CU-01 — Registrar venta rápida de mostrador
 
@@ -46,17 +47,17 @@ Precondiciones: Usuario autenticado; catálogo disponible localmente.
 
 - El usuario confirma la venta.
 
-- El sistema registra la Venta con tipo=RAPIDA y estado=CERRADA, genera los detalles, registra el movimiento de inventario correspondiente y, cuando el pago está confirmado, genera un único MovimientoCaja de ingreso.
+- El sistema registra la Venta con tipo=RAPIDA y estado=CERRADA, genera los detalles, registra los movimientos de inventario de los productos que controlan existencias y genera un único MovimientoCaja de ingreso con el estado_pago que corresponda al medio utilizado.
 
 - El sistema muestra un comprobante o resumen de la venta.
 
 ### Flujos alternativos / excepciones
 
-- Si el producto no tiene stock suficiente, el sistema informa al usuario y no permite confirmar una cantidad superior a la existencia disponible.
+- Si el producto no tiene stock suficiente, el sistema informa al usuario y no permite confirmar una cantidad superior a la existencia disponible. Esta validación no aplica a los productos con controla_stock = false, que no llevan existencias propias.
 
 - Si la venta se registra sin conexión y el medio de pago es efectivo, se guarda localmente y queda pendiente de sincronización.
 
-- Si el medio de pago es electrónico y no existe conectividad para confirmar el pago, el sistema no debe marcar el pago electrónico como confirmado.
+- Si el medio de pago es TRANSFERENCIA o QR, el cobro queda registrado con estado_pago = PENDIENTE_VERIFICACION y el sistema muestra la referencia Nequi configurada (ConfiguracionPago); solo un usuario con conexión, tras comprobar la recepción, lo marca como CONFIRMADO. El sistema nunca lo presenta como pago recibido antes de esa confirmación (D-06, E-01).
 
 ### Postcondiciones
 
@@ -112,7 +113,7 @@ Precondiciones: Existe una sesión dinámica ABIERTA asociada a una mesa.
 
 ### Flujos alternativos / excepciones
 
-- Si el producto no tiene stock suficiente, el sistema informa al usuario y no permite agregar una cantidad superior a la disponibilidad.
+- Si el producto no tiene stock suficiente, el sistema informa al usuario y no permite agregar una cantidad superior a la disponibilidad. Los productos con controla_stock = false se agregan sin esa validación.
 
 - Si no existe conexión, la modificación de la sesión se guarda localmente y queda pendiente de sincronización.
 
@@ -126,7 +127,7 @@ Actor(es): Operador, Administrador
 
 Prioridad: Alta
 
-Precondiciones: Existe una sesión dinámica ABIERTA con al menos un consumo registrado.
+Precondiciones: Existe una sesión dinámica ABIERTA. El cierre con cobro exige al menos un consumo registrado; una sesión sin consumos se resuelve mediante el flujo alternativo de cancelación.
 
 ### Flujo principal
 
@@ -140,7 +141,7 @@ Precondiciones: Existe una sesión dinámica ABIERTA con al menos un consumo reg
 
 - El usuario confirma el cierre.
 
-- El sistema cambia la Venta a estado=CERRADA, registra la fecha de cierre y el medio de pago, genera los movimientos de salida de inventario correspondientes y, si el pago está confirmado, genera exactamente un MovimientoCaja de ingreso.
+- El sistema cambia la Venta a estado=CERRADA, registra la fecha de cierre, el medio de pago y el estado del pago, genera los movimientos de salida de inventario de los productos que controlan existencias y genera exactamente un MovimientoCaja de ingreso.
 
 - El sistema libera la mesa.
 
@@ -148,7 +149,9 @@ Precondiciones: Existe una sesión dinámica ABIERTA con al menos un consumo reg
 
 - El usuario puede cancelar el cierre y continuar agregando consumos.
 
-- Para pagos electrónicos sin conectividad, el sistema no debe confirmar el pago; el flujo queda pendiente hasta contar con la conectividad requerida.
+- Si la sesión se abrió por error, el usuario puede cancelarla mientras siga ABIERTA: la venta pasa a CANCELADA sin generar movimientos de inventario ni de caja y la mesa vuelve a DISPONIBLE. Una venta ya CERRADA no puede cancelarse; su corrección se registra mediante los movimientos de ajuste correspondientes (R-11).
+
+- Con TRANSFERENCIA o QR el cobro se registra con estado_pago = PENDIENTE_VERIFICACION, mostrando la referencia Nequi configurada (ConfiguracionPago); solo un usuario con conexión, tras comprobar la recepción, lo marca como CONFIRMADO (D-06, E-01).
 
 - En efectivo, el cierre puede registrarse offline y sincronizarse posteriormente.
 
@@ -170,7 +173,7 @@ Precondiciones: Usuario autenticado con rol Administrador.
 
 - El Administrador crea o edita una categoría y/o un producto.
 
-- El sistema solicita y valida nombre, tipo, precio de venta, costo de producción cuando aplique, unidad de medida y stock mínimo.
+- El sistema solicita y valida nombre, tipo, precio de venta, costo de producción cuando aplique, unidad de medida, stock mínimo y si el producto controla existencias propias.
 
 - El sistema guarda los cambios y actualiza la disponibilidad del catálogo.
 
@@ -182,7 +185,39 @@ Precondiciones: Usuario autenticado con rol Administrador.
 
 ### Postcondiciones
 
-El catálogo queda actualizado para las operaciones de venta y sesiones dinámicas.
+El catálogo queda actualizado para las operaciones de venta y sesiones dinámicas. Un producto marcado con controla_stock = false queda disponible para la venta sin llevar existencias propias; sus insumos se controlan como productos independientes.
+
+## CU-19 — Gestionar mesas del local
+
+Actor(es): Administrador
+
+Prioridad: Alta
+
+Precondiciones: Usuario autenticado con rol Administrador.
+
+### Flujo principal
+
+- El Administrador accede a la gestión de mesas.
+
+- El sistema muestra las mesas registradas con su número, estado y si están activas.
+
+- El Administrador registra una mesa nueva indicando su número, o activa o desactiva una existente.
+
+- El sistema valida el número y el límite de mesas activas y guarda el cambio.
+
+### Flujos alternativos / excepciones
+
+- Si la operación superaría las quince mesas activas, el sistema la rechaza. Al sincronizar una operación creada sin conexión, se registra el conflicto LIMITE_MESAS_EXCEDIDO (R-06).
+
+- Si la mesa está OCUPADA, el sistema no permite desactivarla.
+
+- Las mesas no se eliminan: se desactivan para conservar el historial de sesiones.
+
+- Si un Operador intenta modificar una mesa, el backend deniega la operación. El Operador sí consulta las mesas, porque las necesita para abrir una sesión (CU-02).
+
+### Postcondiciones
+
+El local dispone del mapa de mesas necesario para las sesiones dinámicas, con un máximo de quince mesas activas.
 
 # Módulo 2 — Flujo de Entrega y Gestión de Servicios
 
@@ -192,7 +227,7 @@ Cubre los pedidos por encargo y servicios con fecha de entrega, el seguimiento d
 | --- | --- | --- | --- | --- |
 | CU-06 | Registrar pedido por encargo | Operador, Administrador | Alta | No (offline-first) |
 | CU-07 | Actualizar estado de la orden de trabajo | Operador, Administrador | Media | No (offline-first) |
-| CU-08 | Registrar abono a una orden de trabajo | Operador, Administrador | Alta | Parcial: efectivo offline; electrónico requiere conexión |
+| CU-08 | Registrar abono a una orden de trabajo | Operador, Administrador | Alta | Parcial: el cobro se registra offline; confirmar un pago electrónico requiere conexión (E-01) |
 | CU-09 | Registrar consumo de inventario en una orden | Operador, Administrador | Alta | No (offline-first) |
 | CU-10 | Consultar análisis de costos operativos por orden | Administrador | Media | No (offline-first) |
 
@@ -272,7 +307,7 @@ Precondiciones: Existe una OrdenTrabajo con saldo pendiente mayor que cero.
 
 - El sistema crea una entidad Abono independiente asociada a la orden.
 
-- Si el pago está confirmado, el sistema genera un MovimientoCaja de tipo INGRESO_ABONO.
+- El sistema genera un MovimientoCaja de tipo INGRESO_ABONO con el estado_pago que corresponda al medio utilizado.
 
 - El sistema recalcula el saldo pendiente como costo_total menos la suma de todos los abonos.
 
@@ -280,7 +315,7 @@ Precondiciones: Existe una OrdenTrabajo con saldo pendiente mayor que cero.
 
 - Si el abono excede el saldo pendiente, el sistema rechaza el valor.
 
-- Si el pago electrónico no puede confirmarse por falta de conectividad, el sistema no lo registra como pago electrónico confirmado.
+- Con TRANSFERENCIA o QR el abono queda registrado con estado_pago = PENDIENTE_VERIFICACION, mostrando la referencia Nequi configurada (ConfiguracionPago); solo un usuario con conexión, tras comprobar la recepción, lo marca como CONFIRMADO (D-06, E-01). El saldo pendiente sí se reduce desde el registro, pero el ingreso no entra en un cierre de caja hasta confirmarse (R-22).
 
 - Un abono en efectivo puede registrarse offline y quedar pendiente de sincronización.
 
@@ -334,13 +369,13 @@ Precondiciones: Existe una OrdenTrabajo con información de costos operativos re
 
 - El sistema muestra el costo total acordado y el desglose de costos operativos registrados.
 
-- El sistema calcula o presenta la utilidad neta según las reglas definidas para el proyecto.
+- El sistema calcula la utilidad neta de la orden como costo_total menos la suma de los CostoOperativoOrden registrados. El cálculo se realiza en el backend y no incluye el valor de los insumos consumidos, que se controla en el módulo de Inventario.
 
 ### Flujos alternativos / excepciones
 
 - Si el usuario no tiene rol Administrador, el backend deniega el acceso.
 
-- Si no existen costos operativos registrados, el sistema informa que no hay conceptos disponibles para el desglose.
+- Si no existen costos operativos registrados, el sistema informa que no hay conceptos disponibles para el desglose y la utilidad neta equivale al costo total acordado.
 
 ### Postcondiciones
 
@@ -356,7 +391,8 @@ Vincula las operaciones de ventas y servicios con las existencias físicas y con
 | CU-12 | Registrar ingreso de mercancía | Operador, Administrador | Media | No (offline-first) |
 | CU-13 | Realizar ajuste manual de inventario | Administrador | Media | No (offline-first) |
 | CU-14 | Registrar gasto o gasto hormiga | Operador, Administrador | Alta | No (offline-first) |
-| CU-15 | Realizar cierre de caja (arqueo) | Administrador | Alta | No (offline-first) |
+| CU-15 | Realizar cierre de caja (arqueo) | Administrador | Alta | Sí: requiere conexión y la cola de sincronización aplicada (E-05) |
+| CU-20 | Consultar resumen diario de caja | Administrador | Alta | Sí: los totales los calcula el backend |
 
 ## CU-11 — Consultar inventario y stock
 
@@ -418,9 +454,9 @@ Precondiciones: Usuario autenticado con rol Administrador y producto existente.
 
 - El Administrador selecciona el producto a ajustar.
 
-- El Administrador indica el tipo de ajuste, cantidad y motivo.
+- El Administrador indica el tipo de ajuste (MERMA o AJUSTE_MANUAL), la cantidad, el motivo y, si es AJUSTE_MANUAL, si el ajuste suma o resta existencias.
 
-- El sistema crea un MovimientoInventario de tipo MERMA o AJUSTE_MANUAL.
+- El sistema crea un MovimientoInventario de tipo MERMA o AJUSTE_MANUAL, registrando el sentido cuando corresponde. La cantidad siempre es positiva: el signo lo determina el tipo o, en el ajuste manual, el sentido.
 
 - El sistema actualiza el stock actual.
 
@@ -456,7 +492,7 @@ Precondiciones: Usuario autenticado.
 
 - Si el gasto se registra en efectivo sin conexión, se almacena localmente y queda pendiente de sincronización.
 
-- Si el medio corresponde a un pago electrónico que requiere confirmación externa, el sistema no debe marcarlo como confirmado sin conectividad.
+- Con TRANSFERENCIA o QR el gasto queda registrado con estado_pago = PENDIENTE_VERIFICACION y no se incorpora a un cierre de caja hasta que un usuario con conexión confirme la operación (D-06, R-22).
 
 ### Postcondiciones
 
@@ -468,31 +504,63 @@ Actor(es): Administrador
 
 Prioridad: Alta
 
-Precondiciones: Usuario autenticado con rol Administrador; existen movimientos de caja registrados en el período que se desea cerrar.
+Precondiciones: Usuario autenticado con rol Administrador y con conexión; existen movimientos de caja registrados en el período que se desea cerrar.
 
 ### Flujo principal
 
 - El Administrador selecciona «Cierre de caja».
 
-- El sistema consolida los movimientos de caja del período, diferenciando ingresos por ventas, ingresos por abonos y gastos.
+- El sistema verifica que no existan operaciones pendientes de sincronización; si las hay, deben aplicarse antes de continuar.
 
-- El sistema presenta los totales por medio de pago.
+- El sistema consolida los movimientos de caja del período con estado_pago = CONFIRMADO y sin cierre asignado, diferenciando ingresos por ventas, ingresos por abonos y gastos.
 
-- El Administrador compara el efectivo esperado con el efectivo físico contado.
+- El sistema presenta los totales por medio de pago y el efectivo esperado.
 
-- El Administrador registra observaciones cuando existe un descuadre.
+- El Administrador registra el efectivo físico contado y el sistema calcula la diferencia.
 
-- El sistema guarda el CierreCaja como resumen del período.
+- El Administrador registra observaciones cuando existe un descuadre; son obligatorias si la diferencia no es cero.
+
+- El sistema guarda el CierreCaja como resumen del período y asocia a él los movimientos consolidados.
 
 ### Flujos alternativos / excepciones
 
-- Si existen operaciones pendientes de sincronización, el sistema las identifica y evita presentarlas como confirmadas por el servidor hasta completar la sincronización.
+- Si existen operaciones pendientes de sincronización, el sistema las identifica y no permite confirmar el cierre hasta haberlas aplicado. El arqueo puede prepararse y el efectivo contarse sin conexión, pero la confirmación del cierre siempre requiere conexión (E-05).
+
+- Los movimientos con estado_pago = PENDIENTE_VERIFICACION no se incluyen en este cierre y quedan disponibles para el siguiente (R-22).
+
+- Un movimiento sincronizado con fecha anterior a un cierre ya realizado no se incorpora retroactivamente: se registra el conflicto MOVIMIENTO_EN_PERIODO_CERRADO y se consolida en el cierre siguiente (R-25).
 
 - Si un Operador intenta acceder, el backend deniega la operación mediante RBAC.
 
 ### Postcondiciones
 
-El período queda formalmente cerrado y el CierreCaja conserva el resumen y las observaciones, mientras que MovimientoCaja mantiene el detalle histórico.
+El período queda formalmente cerrado y el CierreCaja conserva el resumen, el arqueo (efectivo esperado, contado y diferencia) y las observaciones, mientras que MovimientoCaja mantiene el detalle histórico. Los movimientos consolidados quedan asociados al cierre y no pueden reasignarse ni modificarse (R-23).
+
+## CU-20 — Consultar resumen diario de caja
+
+Actor(es): Administrador
+
+Prioridad: Alta
+
+Precondiciones: Usuario autenticado con rol Administrador y con conexión.
+
+### Flujo principal
+
+- El Administrador abre el resumen financiero e indica la fecha a consultar.
+
+- El sistema calcula en el backend los ingresos por ventas, los ingresos por abonos, los gastos y el neto del día, discriminados por medio de pago.
+
+- El sistema señala por separado los importes con estado_pago = PENDIENTE_VERIFICACION, que aún no forman parte de ningún cierre.
+
+### Flujos alternativos / excepciones
+
+- Si un Operador intenta acceder, el backend deniega la operación mediante RBAC.
+
+- Si no existen movimientos en la fecha consultada, el sistema informa que no hay actividad registrada.
+
+### Postcondiciones
+
+El Administrador dispone de la situación de caja del día sin necesidad de realizar un cierre. Los totales los calcula el backend; el cliente nunca los deriva localmente.
 
 # Caso de uso transversal — Configuración de módulos
 
@@ -522,7 +590,9 @@ Precondiciones: Usuario autenticado con rol Administrador.
 
 ### Flujos alternativos / excepciones
 
-- El backend rechaza operaciones pertenecientes a un módulo desactivado, aunque un usuario intente acceder directamente a su API.
+- El backend rechaza operaciones pertenecientes a un módulo desactivado, aunque un usuario intente acceder directamente a su API; al sincronizar registra el código MODULO_DESACTIVADO.
+
+- Ambos roles consultan la configuración en modo lectura: sin ella, la interfaz del Operador no puede saber qué funcionalidades ocultar. La modificación queda restringida al Administrador.
 
 - Si un cambio se realiza offline, queda pendiente de sincronización.
 
@@ -566,6 +636,129 @@ Precondiciones: El usuario tiene una cuenta activa creada previamente.
 
 El usuario queda autenticado y puede acceder a las funciones permitidas por su rol.
 
+# Casos de uso transversales — Administración de la instalación y sincronización
+
+| ID | Caso de uso | Actor(es) | Prioridad | Conexión |
+| --- | --- | --- | --- | --- |
+| CU-18 | Gestionar usuarios | Administrador | Alta | Sí: las credenciales se validan y almacenan en el servidor (E-02) |
+| CU-21 | Gestionar dispositivos autorizados | Administrador | Media | Sí: requiere conexión (E-04) |
+| CU-22 | Configurar medios de pago | Administrador | Media | Sí: requiere conexión (E-03) |
+| CU-23 | Atender novedades de sincronización | Operador, Administrador | Alta | Sí: requiere conexión |
+
+## CU-18 — Gestionar usuarios
+
+Actor(es): Administrador
+
+Prioridad: Alta
+
+Precondiciones: Usuario autenticado con rol Administrador y con conexión.
+
+### Flujo principal
+
+- El Administrador accede a la gestión de usuarios y consulta los existentes.
+
+- El Administrador crea un usuario Operador indicando nombre, usuario y contraseña inicial, o edita los datos permitidos de uno existente.
+
+- El sistema valida que el nombre de usuario sea único, almacena la contraseña como hash y guarda el registro.
+
+### Flujos alternativos / excepciones
+
+- La baja es lógica: el Administrador cambia activo a false. Un usuario inactivo conserva su historial y no puede iniciar sesión.
+
+- El sistema rechaza la operación que dejaría la instalación sin ningún Administrador activo (R-04).
+
+- Si un Operador intenta acceder, el backend deniega la operación.
+
+- La creación de usuarios y el cambio de contraseña requieren conexión: las credenciales se validan y almacenan en el servidor (E-02).
+
+### Postcondiciones
+
+La instalación conserva al menos un Administrador activo y cada usuario accede únicamente a las funciones de su rol.
+
+## CU-21 — Gestionar dispositivos autorizados
+
+Actor(es): Administrador
+
+Prioridad: Media
+
+Precondiciones: Usuario autenticado con rol Administrador y con conexión.
+
+### Flujo principal
+
+- El Administrador consulta los dispositivos registrados y cuál está autorizado para operar sin conexión.
+
+- El Administrador registra un dispositivo nuevo con el identificador que genera la PWA, le asigna un nombre reconocible e indica si corresponde al punto de caja.
+
+- El Administrador autoriza un dispositivo para operar offline; el sistema revoca automáticamente cualquier autorización anterior.
+
+### Flujos alternativos / excepciones
+
+- Si un Operador intenta acceder, el backend deniega la operación.
+
+- Si un dispositivo no autorizado envía operaciones creadas sin conexión, el lote completo se rechaza con el código DISPOSITIVO_NO_AUTORIZADO y las operaciones quedan registradas para informar al usuario.
+
+- Un dispositivo se revoca sin borrarlo, para conservar su historial de sincronización.
+
+### Postcondiciones
+
+A lo sumo un dispositivo tiene autorizado_offline = true, conforme a la política de un único dispositivo offline (D-04).
+
+## CU-22 — Configurar medios de pago
+
+Actor(es): Administrador
+
+Prioridad: Media
+
+Precondiciones: Usuario autenticado con rol Administrador y con conexión.
+
+### Flujo principal
+
+- El Administrador accede a la configuración de medios de pago.
+
+- El Administrador habilita o deshabilita EFECTIVO, TRANSFERENCIA y QR.
+
+- El Administrador registra el titular y la llave Nequi que se mostrará al cliente como referencia de cobro.
+
+### Flujos alternativos / excepciones
+
+- El sistema exige una llave Nequi si TRANSFERENCIA o QR están habilitados.
+
+- La modificación requiere conexión: un cambio registrado offline y rechazado después dejaría cobros dirigidos a una cuenta que el negocio no controla (E-03).
+
+- Ambos roles consultan la configuración en modo lectura, porque el Operador necesita mostrar la referencia al cliente. Solo el Administrador la modifica (R-29).
+
+### Postcondiciones
+
+La referencia configurada se muestra a partir de ese momento en los cobros por transferencia o QR. SADIM no verifica el pago: solo registra el medio y presenta la referencia.
+
+## CU-23 — Atender novedades de sincronización
+
+Actor(es): Operador, Administrador
+
+Prioridad: Alta
+
+Precondiciones: Existen operaciones sincronizadas con estado RECHAZADA o CONFLICTO pendientes de atención.
+
+### Flujo principal
+
+- El usuario consulta las novedades: operaciones con estado RECHAZADA o CONFLICTO y atendida = false.
+
+- El sistema muestra, por cada una, el recurso afectado, el código, el mensaje y la fecha en que se registró en el dispositivo.
+
+- El usuario realiza la corrección manual que corresponda: repetir el registro con la cantidad disponible, registrar un ajuste de inventario con motivo, cobrar la diferencia o dejar constancia en las observaciones del cierre.
+
+- El usuario marca la novedad como atendida.
+
+### Flujos alternativos / excepciones
+
+- Una novedad no se resuelve sobrescribiendo el estado del servidor: la corrección es siempre una operación nueva y trazable (R-31).
+
+- Las novedades cuya corrección corresponde a un Administrador, como un ajuste manual de inventario, quedan visibles para el Operador pero no son ejecutables por él.
+
+### Postcondiciones
+
+Ninguna operación queda rechazada o en conflicto sin que un usuario la haya revisado (R-33).
+
 # Notas de consistencia con ADR y ERD
 
 - Una Venta cerrada genera exactamente un MovimientoCaja de ingreso; el cambio entregado al cliente no se modela como un movimiento independiente de caja.
@@ -581,5 +774,13 @@ El usuario queda autenticado y puede acceder a las funciones permitidas por su r
 - Los gastos hormiga se registran como MovimientoCaja de tipo GASTO.
 
 - La cola de sincronización y los identificadores operation_id forman parte de la estrategia offline-first; el modelo relacional debe mantener la unicidad necesaria para garantizar idempotencia.
+
+- Un producto con controla_stock = false no valida ni descuenta existencias al venderse. SADIM no modela recetas: los insumos de un preparado se controlan como productos independientes mediante ingresos, consumos de órdenes, mermas y ajustes.
+
+- La utilidad neta de una orden es costo_total menos la suma de sus CostoOperativoOrden, calculada en el backend y visible solo para el Administrador.
+
+- Un cobro por TRANSFERENCIA o QR se registra con estado_pago = PENDIENTE_VERIFICACION y no entra en un cierre de caja hasta confirmarse en línea.
+
+- Las operaciones creadas sin conexión provienen de un único dispositivo autorizado. Las rechazadas o en conflicto no se descartan: se atienden mediante CU-23.
 
 - El frontend puede ocultar funciones de módulos desactivados o roles sin permiso, pero la autorización efectiva se valida en el backend.

@@ -127,7 +127,11 @@ SADIM adoptará un enfoque offline-first en el cliente PWA. La información y la
 
 - Las operaciones transaccionales serán validadas antes de aplicarse definitivamente.
 
-- Los pagos electrónicos requieren conectividad para confirmar su estado; los registros de operaciones en efectivo pueden almacenarse offline y sincronizarse posteriormente.
+- Cuando el sistema opera sin conexión, las operaciones se concentran en un único dispositivo autorizado por un Administrador (entidad Dispositivo); no se admite que dos dispositivos trabajen simultáneamente offline sobre la misma instalación. El dispositivo se identifica en cada sincronización mediante el encabezado X-Device-Id.
+
+- Los pagos electrónicos requieren conectividad para confirmar su estado; el cobro sí puede registrarse offline, marcado como pendiente de verificación, y solo un usuario con conexión lo confirma. Los registros de operaciones en efectivo pueden almacenarse offline y sincronizarse posteriormente.
+
+- Ninguna operación sincronizada se descarta en silencio: las rechazadas o en conflicto quedan registradas y deben ser atendidas por un usuario.
 
 - La persistencia local depende de las capacidades de almacenamiento del navegador y debe contemplarse la posibilidad de pérdida de datos locales en escenarios no soportados por el navegador.
 
@@ -139,7 +143,17 @@ SADIM requiere diferenciar las capacidades de administración del sistema de las
 
 ## Decisión
 
-Se implementará RBAC con dos roles definidos para el alcance del proyecto: Administrador y Operador. El Administrador tendrá acceso a la gestión del catálogo, precios, márgenes, análisis financiero, cierre de caja y ajustes maestros de inventario. El Operador tendrá acceso a las operaciones autorizadas de ventas, sesiones dinámicas y registro de abonos, sin acceso a información financiera sensible. El control de autorización se aplicará tanto en la interfaz como en la API. La interfaz ocultará acciones no autorizadas para mejorar la experiencia de usuario, mientras que el backend constituirá la capa definitiva de autorización.
+Se implementará RBAC con dos roles definidos para el alcance del proyecto: Administrador y Operador. El control de autorización se aplicará tanto en la interfaz como en la API. La interfaz ocultará acciones no autorizadas para mejorar la experiencia de usuario, mientras que el backend constituirá la capa definitiva de autorización.
+
+El reparto de capacidades es el siguiente.
+
+| Ámbito | Administrador | Operador |
+| --- | --- | --- |
+| Exclusivo del Administrador | Catálogo y precios, ajuste manual de inventario y mermas, análisis de costos y márgenes, cierre de caja, resumen financiero, gestión de usuarios, gestión de mesas, configuración de módulos, configuración de medios de pago y autorización de dispositivos. | Sin acceso. |
+| Compartido | Todas las operaciones del Operador. | Venta rápida, sesiones dinámicas y su cancelación, órdenes de trabajo y sus abonos y consumos, consulta de inventario, ingreso de mercancía, registro de gastos y atención de novedades de sincronización. |
+| Lectura necesaria para la interfaz | Completa. | Consulta de mesas, y lectura de la configuración de módulos y de medios de pago. |
+
+El Operador no accede a márgenes, costos operativos, resúmenes financieros ni al histórico consolidado de movimientos de caja, aunque sí registra los gastos que le corresponden.
 
 ## Alternativas consideradas
 
@@ -149,9 +163,9 @@ Se implementará RBAC con dos roles definidos para el alcance del proyecto: Admi
 
 ## Consecuencias
 
-- El backend debe validar permisos en cada operación protegida.
+- El backend debe validar permisos en cada operación protegida, incluidas las operaciones que llegan por sincronización: un intento no autorizado se registra con el código PERMISO_INSUFICIENTE.
 
-- El frontend debe reflejar los permisos para evitar mostrar acciones que el usuario no puede ejecutar.
+- El frontend debe reflejar los permisos para evitar mostrar acciones que el usuario no puede ejecutar. Para lograrlo, la interfaz del Operador requiere acceso de lectura a la configuración de módulos y de medios de pago; esa lectura no expone información financiera sensible.
 
 - La estructura de permisos podrá ampliarse posteriormente si el alcance del producto incorpora nuevos roles.
 
@@ -255,7 +269,7 @@ Las decisiones específicas del modelo de datos y de los contratos de integraci�
 | --- | --- | --- |
 | Frontend | React + TypeScript | Interfaz de usuario de la PWA |
 | PWA | Service Worker + Web App Manifest | Instalación, cache y capacidades offline |
-| Persistencia local | IndexedDB | Datos y operaciones locales |
+| Persistencia local | IndexedDB con Dexie.js | Datos y operaciones locales, cola de sincronización y novedades |
 | Backend | Python + Django + Django REST Framework | API y lógica del sistema |
 | Base de datos | PostgreSQL | Persistencia relacional |
 | Control de versiones | Git + GitHub | Gestión del código fuente |
