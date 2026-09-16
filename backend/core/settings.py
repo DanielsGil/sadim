@@ -145,5 +145,9 @@ REST_FRAMEWORK = {
     ),
     # Contrato API §14 / IMP-07: toda respuesta de error es {code, message, details}.
     'EXCEPTION_HANDLER': 'core.exceptions.manejador_de_excepciones',
+    # Contrato API §2: los valores monetarios y las cantidades salen como
+    # número JSON (3500.00), no como texto ("3500.00"). El backend sigue
+    # calculando con Decimal; esto solo cambia cómo se serializa hacia afuera.
+    'COERCE_DECIMAL_TO_STRING': False,
 }
 AUTH_USER_MODEL = 'usuarios.Usuario'
