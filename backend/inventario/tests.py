@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 
 from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError
@@ -13,10 +14,8 @@ PASSWORD = 'ClaveSegura2026!'
 
 
 def assert_error_shape(test, response):
-    """Contrato API §14: toda respuesta de error es {code, message, details}."""
-    test.assertIn('code', response.data)
-    test.assertIn('message', response.data)
-    test.assertIn('details', response.data)
+    """Contrato API §14: toda respuesta de error es EXACTAMENTE {code, message, details}."""
+    test.assertEqual(set(response.data.keys()), {'code', 'message', 'details'})
 
 
 class RestriccionesBDTests(TestCase):
@@ -51,6 +50,14 @@ class RestriccionesBDTests(TestCase):
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 Categoria.objects.create(nombre='Otra', operation_id=op_id)
+
+    def test_costo_produccion_negativo_rechazado(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Producto.objects.create(
+                    categoria=self.categoria, nombre='Malo', tipo='REVENTA_DIRECTA',
+                    precio_venta=1000, costo_produccion=-1, unidad_medida='unidad',
+                )
 
     def test_categoria_con_productos_no_se_puede_borrar(self):
         # D7: toda FK del dominio usa PROTECT (R-17, baja lógica del Contrato).
@@ -118,6 +125,7 @@ class RBACTests(CatalogoAPITestCase):
         )
 
         self.assertEqual(response.status_code, 403)
+        assert_error_shape(self, response)
         self.assertEqual(response.data['code'], 'PERMISO_INSUFICIENTE')
 
     def test_operador_no_puede_crear_ni_editar_producto(self):
@@ -127,15 +135,35 @@ class RBACTests(CatalogoAPITestCase):
         )
 
         r_post = self.c_operador.post('/api/productos/', {
-            'categoria': self.categoria.id, 'nombre': 'Te', 'tipo': 'REVENTA_DIRECTA',
+            'categoria_id': self.categoria.id, 'nombre': 'Te', 'tipo': 'REVENTA_DIRECTA',
             'precio_venta': '2000.00', 'unidad_medida': 'unidad',
         }, format='json')
         self.assertEqual(r_post.status_code, 403)
+        assert_error_shape(self, r_post)
+        self.assertEqual(r_post.data['code'], 'PERMISO_INSUFICIENTE')
 
         r_patch = self.c_operador.patch(
             f'/api/productos/{producto.id}/', {'precio_venta': '4000.00'}, format='json',
         )
         self.assertEqual(r_patch.status_code, 403)
+        assert_error_shape(self, r_patch)
+        self.assertEqual(r_patch.data['code'], 'PERMISO_INSUFICIENTE')
+
+    def test_producto_inexistente_responde_404(self):
+        response = self.c_admin.get(f'/api/productos/{uuid.uuid4()}/')
+
+        self.assertEqual(response.status_code, 404)
+        assert_error_shape(self, response)
+        self.assertEqual(response.data['code'], 'RECURSO_NO_ENCONTRADO')
+
+    def test_categoria_inexistente_responde_404(self):
+        response = self.c_admin.patch(
+            f'/api/categorias/{uuid.uuid4()}/', {'nombre': 'Otra'}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 404)
+        assert_error_shape(self, response)
+        self.assertEqual(response.data['code'], 'RECURSO_NO_ENCONTRADO')
 
     def test_put_y_delete_no_permitidos_en_categorias(self):
         r_put = self.c_admin.put(
@@ -147,6 +175,7 @@ class RBACTests(CatalogoAPITestCase):
         assert_error_shape(self, r_put)
         self.assertEqual(r_put.data['code'], 'METODO_NO_PERMITIDO')
         self.assertEqual(r_delete.status_code, 405)
+        assert_error_shape(self, r_delete)
         self.assertEqual(r_delete.data['code'], 'METODO_NO_PERMITIDO')
 
     def test_put_y_delete_no_permitidos_en_productos(self):
@@ -156,13 +185,17 @@ class RBACTests(CatalogoAPITestCase):
         )
 
         r_put = self.c_admin.put(f'/api/productos/{producto.id}/', {
-            'categoria': self.categoria.id, 'nombre': 'Cafe', 'tipo': 'REVENTA_DIRECTA',
+            'categoria_id': self.categoria.id, 'nombre': 'Cafe', 'tipo': 'REVENTA_DIRECTA',
             'precio_venta': '4000.00', 'unidad_medida': 'unidad',
         }, format='json')
         r_delete = self.c_admin.delete(f'/api/productos/{producto.id}/')
 
         self.assertEqual(r_put.status_code, 405)
+        assert_error_shape(self, r_put)
+        self.assertEqual(r_put.data['code'], 'METODO_NO_PERMITIDO')
         self.assertEqual(r_delete.status_code, 405)
+        assert_error_shape(self, r_delete)
+        self.assertEqual(r_delete.data['code'], 'METODO_NO_PERMITIDO')
 
 
 class CatalogoTests(CatalogoAPITestCase):
@@ -180,13 +213,15 @@ class CatalogoTests(CatalogoAPITestCase):
 
     def test_admin_crea_producto_y_stock_actual_enviado_se_ignora(self):
         response = self.c_admin.post('/api/productos/', {
-            'categoria': self.categoria.id, 'nombre': 'Cafe', 'tipo': 'REVENTA_DIRECTA',
+            'categoria_id': self.categoria.id, 'nombre': 'Cafe', 'tipo': 'REVENTA_DIRECTA',
             'precio_venta': '3500.00', 'costo_produccion': '1500.00',
             'unidad_medida': 'unidad', 'stock_actual': '999.00',
         }, format='json')
 
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.data['stock_actual'], '0.00')
+        self.assertEqual(response.data['categoria_id'], self.categoria.id)
+        self.assertEqual(response.data['precio_venta'], Decimal('3500.00'))
+        self.assertEqual(response.data['stock_actual'], Decimal('0.00'))
 
     def test_baja_logica_y_reactivacion_de_producto(self):
         producto = Producto.objects.create(
@@ -244,6 +279,7 @@ class CatalogoTests(CatalogoAPITestCase):
 
         r_tipo_invalido = self.c_admin.get('/api/productos/?tipo=INVALIDO')
         self.assertEqual(r_tipo_invalido.status_code, 400)
+        assert_error_shape(self, r_tipo_invalido)
         self.assertEqual(r_tipo_invalido.data['code'], 'DATOS_INVALIDOS')
 
     def test_operador_no_recibe_costo_produccion(self):
@@ -256,7 +292,7 @@ class CatalogoTests(CatalogoAPITestCase):
         r_admin = self.c_admin.get('/api/productos/')
 
         self.assertNotIn('costo_produccion', r_operador.data[0])
-        self.assertEqual(r_admin.data[0]['costo_produccion'], '1500.00')
+        self.assertEqual(r_admin.data[0]['costo_produccion'], Decimal('1500.00'))
 
     def test_operation_id_duplicado_en_api_responde_400(self):
         r1 = self.c_admin.post('/api/categorias/', {'nombre': 'Postres'}, format='json')
@@ -279,5 +315,6 @@ class CatalogoTests(CatalogoAPITestCase):
         )
 
         self.assertEqual(r2.status_code, 400)
+        assert_error_shape(self, r2)
         self.assertEqual(r2.data['code'], 'DATOS_INVALIDOS')
         self.assertIn('operation_id', r2.data['details'])

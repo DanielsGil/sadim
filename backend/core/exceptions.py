@@ -8,6 +8,8 @@ tabla del Contrato §14 y las decisiones D1/D2 acordadas para el cierre del
 Sprint 2.
 """
 
+from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
+from django.http import Http404
 from rest_framework import exceptions as drf_exceptions
 from rest_framework.response import Response
 from rest_framework.views import set_rollback
@@ -42,6 +44,16 @@ def manejador_de_excepciones(exc, context):
 
     if isinstance(exc, ErrorNegocio):
         return _respuesta_error(exc.code, exc.message, exc.status_code, exc.details)
+
+    # DRF solo traduce Http404 / PermissionDenied (de Django, no de DRF) a sus
+    # equivalentes de APIException dentro de su exception_handler por
+    # defecto; como este lo reemplaza por completo, hay que repetir esa
+    # traducción aquí (si no, get_object_or_404 termina en ERROR_INTERNO 500
+    # en vez de 404).
+    if isinstance(exc, Http404):
+        exc = drf_exceptions.NotFound(*exc.args)
+    elif isinstance(exc, DjangoPermissionDenied):
+        exc = drf_exceptions.PermissionDenied(*exc.args)
 
     if isinstance(exc, drf_exceptions.NotAuthenticated):
         return _respuesta_error(

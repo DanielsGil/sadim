@@ -9,10 +9,8 @@ PASSWORD = 'ClaveSegura2026!'
 
 
 def assert_error_shape(test, response):
-    """Contrato API §14: toda respuesta de error es {code, message, details}."""
-    test.assertIn('code', response.data)
-    test.assertIn('message', response.data)
-    test.assertIn('details', response.data)
+    """Contrato API §14: toda respuesta de error es EXACTAMENTE {code, message, details}."""
+    test.assertEqual(set(response.data.keys()), {'code', 'message', 'details'})
 
 
 class UsuarioModeloTests(TestCase):
@@ -128,6 +126,7 @@ class LoginRefreshTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 401)
+        assert_error_shape(self, response)
         self.assertEqual(response.data['code'], 'CREDENCIALES_INVALIDAS')
         self.assertEqual(response.data['message'], MENSAJE_CREDENCIALES_INVALIDAS)
 
@@ -140,6 +139,7 @@ class LoginRefreshTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 401)
+        assert_error_shape(self, response)
         self.assertEqual(response.data['code'], 'CREDENCIALES_INVALIDAS')
         self.assertEqual(response.data['message'], MENSAJE_CREDENCIALES_INVALIDAS)
 
