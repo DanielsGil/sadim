@@ -30,6 +30,11 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     nombre_completo = models.CharField(max_length=150)
     username = models.CharField(max_length=50, unique=True)
+    # D8: sobrescribe el password de AbstractBaseUser (VARCHAR(128), columna
+    # "password") para que la columna física se llame password_hash y tenga
+    # el tamaño del ERD §5.1. El atributo Python sigue siendo user.password:
+    # set_password()/check_password()/authenticate() no cambian.
+    password = models.CharField(max_length=255, db_column='password_hash')
     rol = models.CharField(max_length=10, choices=ROLES, default='OPERADOR')
     activo = models.BooleanField(default=True)
     fecha_creacion = models.DateTimeField(default=timezone.now)
