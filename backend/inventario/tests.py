@@ -367,3 +367,74 @@ class CatalogoTests(CatalogoAPITestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.data['controla_stock'])
+
+
+class MovimientoInventarioAPITests(CatalogoAPITestCase):
+    """
+    HU-025 (adelanto, Contrato v2 §9): POST/GET /api/inventario/movimientos/.
+    Por ahora solo ENTRADA; MERMA y AJUSTE_MANUAL quedan para Sprint 4 (HU-026).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.producto = Producto.objects.create(
+            categoria=self.categoria, nombre='Café', tipo='REVENTA_DIRECTA',
+            precio_venta=3500, unidad_medida='unidad', stock_actual=5,
+        )
+
+    def _payload(self, **overrides):
+        payload = {
+            'operation_id': str(uuid.uuid4()), 'producto_id': str(self.producto.id),
+            'tipo': 'ENTRADA', 'cantidad': 10, 'motivo': 'Compra de mercancía',
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_operador_registra_entrada_y_suma_stock(self):
+        response = self.c_operador.post('/api/inventario/movimientos/', self._payload(), format='json')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['tipo'], 'ENTRADA')
+        self.producto.refresh_from_db()
+        self.assertEqual(self.producto.stock_actual, 15)
+
+    def test_merma_responde_400_datos_invalidos(self):
+        response = self.c_admin.post('/api/inventario/movimientos/', self._payload(
+            tipo='MERMA', motivo='Producto vencido',
+        ), format='json')
+
+        self.assertEqual(response.status_code, 400)
+        assert_error_shape(self, response)
+        self.assertEqual(response.data['code'], 'DATOS_INVALIDOS')
+        self.producto.refresh_from_db()
+        self.assertEqual(self.producto.stock_actual, 5)  # no se aplicó nada
+
+    def test_anonimo_recibe_401(self):
+        response = self.c_anonimo.get('/api/inventario/movimientos/')
+        self.assertEqual(response.status_code, 401)
+
+    def test_lista_filtrada_por_producto(self):
+        self.c_admin.post('/api/inventario/movimientos/', self._payload(), format='json')
+        otro_producto = Producto.objects.create(
+            categoria=self.categoria, nombre='Agua', tipo='REVENTA_DIRECTA',
+            precio_venta=2000, unidad_medida='unidad',
+        )
+        self.c_admin.post('/api/inventario/movimientos/', self._payload(
+            operation_id=str(uuid.uuid4()), producto_id=str(otro_producto.id),
+        ), format='json')
+
+        response = self.c_admin.get(f'/api/inventario/movimientos/?producto={self.producto.id}')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(str(response.data[0]['producto_id']), str(self.producto.id))
+
+    def test_reintento_con_mismo_operation_id_no_duplica_entrada(self):
+        payload = self._payload()
+        primera = self.c_admin.post('/api/inventario/movimientos/', payload, format='json')
+        segunda = self.c_admin.post('/api/inventario/movimientos/', payload, format='json')
+
+        self.assertEqual(primera.status_code, 201)
+        self.assertEqual(segunda.status_code, 201)
+        self.assertEqual(primera.data['id'], segunda.data['id'])
+        self.producto.refresh_from_db()
+        self.assertEqual(self.producto.stock_actual, 15)  # no se sumó dos veces

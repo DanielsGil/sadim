@@ -64,3 +64,65 @@ export interface ConfiguracionPago {
   actualizado_por_id: string
   actualizado_en: string
 }
+
+export type EstadoMesa = 'DISPONIBLE' | 'OCUPADA'
+
+/** Mesa (Contrato API v2 §7.1, HU-043). estado es derivado: el backend lo calcula. */
+export interface Mesa {
+  id: string
+  operation_id: string
+  numero: number
+  activa: boolean
+  estado: EstadoMesa
+}
+
+export type TipoVenta = 'RAPIDA' | 'SESION_DINAMICA'
+export type EstadoVenta = 'ABIERTA' | 'CERRADA' | 'CANCELADA'
+export type MedioPago = 'EFECTIVO' | 'TRANSFERENCIA' | 'QR'
+export type EstadoPago = 'CONFIRMADO' | 'PENDIENTE_VERIFICACION'
+
+export interface DetalleVenta {
+  id: string
+  operation_id: string
+  venta_id: string
+  producto_id: string
+  cantidad: number
+  precio_unitario: number
+  subtotal: number
+}
+
+/** Venta (Contrato API v2 §7, HU-012..HU-019, HU-048). total y subtotal los calcula el backend. */
+export interface Venta {
+  id: string
+  operation_id: string
+  tipo: TipoVenta
+  estado: EstadoVenta
+  mesa_id: string | null
+  fecha_apertura: string
+  fecha_cierre: string | null
+  medio_pago: MedioPago | null
+  estado_pago: EstadoPago | null
+  total: number
+  detalles: DetalleVenta[]
+}
+
+export type TipoMovimientoInventario =
+  | 'ENTRADA'
+  | 'SALIDA_VENTA'
+  | 'SALIDA_SERVICIO'
+  | 'MERMA'
+  | 'AJUSTE_MANUAL'
+
+/** MovimientoInventario (Contrato API v2 §9, HU-025 adelantado). Histórico: no se edita. */
+export interface MovimientoInventario {
+  id: string
+  operation_id: string
+  producto_id: string
+  usuario_id: string
+  venta_id: string | null
+  tipo: TipoMovimientoInventario
+  cantidad: number
+  sentido: 'SUMA' | 'RESTA' | null
+  fecha: string
+  motivo: string | null
+}

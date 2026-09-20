@@ -9,16 +9,16 @@ import { useSesion } from '../contexto/SesionContext'
  * autorización real está en el backend.
  *
  * HU-042: el catálogo, usuarios y configuración son rutas del núcleo y no
- * dependen de ninguna bandera (Contrato v2 §12), así que ningún ítem actual
- * se oculta por módulo. Cuando Sprint 3 agregue pantallas de Ventas,
- * Inventario, Servicios o Finanzas, cada NavLink de ese módulo debe
- * condicionarse con `modulos?.x_activo` (por ejemplo
- * `modulos?.ventas_activo && <NavLink to="/ventas">Ventas</NavLink>`),
- * igual que aquí se condiciona por rol.
+ * dependen de ninguna bandera (Contrato v2 §12); Ventas/Mesas e Inventario sí
+ * se ocultan cuando su bandera está desactivada (`modulos?.x_activo`). Antes
+ * de que `modulos` termine de cargar (null) se muestran de más en vez de
+ * ocultar por error: el backend igual aplica la regla real (ADR-005/006).
  */
 export function Layout() {
-  const { sesion, cerrarSesion } = useSesion()
+  const { sesion, cerrarSesion, modulos } = useSesion()
   const navigate = useNavigate()
+  const ventasActivo = modulos?.ventas_activo ?? true
+  const inventarioActivo = modulos?.inventario_activo ?? true
 
   async function manejarCerrarSesion() {
     await cerrarSesion()
@@ -33,6 +33,9 @@ export function Layout() {
           <NavLink to="/" end>
             Inicio
           </NavLink>
+          {ventasActivo && <NavLink to="/ventas">Ventas</NavLink>}
+          {ventasActivo && sesion?.rol === 'ADMIN' && <NavLink to="/mesas">Mesas</NavLink>}
+          {inventarioActivo && <NavLink to="/inventario/ingreso">Ingreso de mercancía</NavLink>}
           {sesion?.rol === 'ADMIN' && <NavLink to="/catalogo">Catálogo</NavLink>}
           {sesion?.rol === 'ADMIN' && <NavLink to="/usuarios">Usuarios</NavLink>}
           {sesion?.rol === 'ADMIN' && <NavLink to="/configuracion">Configuración</NavLink>}

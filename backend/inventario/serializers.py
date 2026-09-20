@@ -1,33 +1,8 @@
 from rest_framework import serializers
 
-from .models import Categoria, Producto
+from core.serializers import OperationIdInmutableMixin
 
-
-class OperationIdInmutableMixin:
-    """
-    D6: operation_id se acepta en POST (o lo genera el servidor si no llega,
-    vía CreacionIdempotenteMixin); en PATCH no puede modificarse.
-
-    HU-045 (Contrato v2 §13.1) reemplaza el 400 DATOS_INVALIDOS provisional:
-    un operation_id repetido ya no es un error de validación, así que
-    CreacionIdempotenteMixin decide qué responder (el resultado original, en
-    vez de rechazar la petición). Para eso hay que quitar el UniqueValidator:
-    declararlo con validators=[] no basta, porque ModelSerializer se lo
-    vuelve a agregar después por ser el nombre de un campo UNIQUE del modelo
-    (comprobado en el shell); se quita a mano en __init__, ya con el field
-    construido.
-    """
-
-    operation_id = serializers.UUIDField(required=False)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields['operation_id'].validators = []
-
-    def validate_operation_id(self, value):
-        if self.instance is not None:
-            raise serializers.ValidationError('operation_id no se puede modificar.')
-        return value
+from .models import Categoria, MovimientoInventario, Producto
 
 
 class CategoriaSerializer(OperationIdInmutableMixin, serializers.ModelSerializer):
@@ -62,3 +37,35 @@ class ProductoSerializer(OperationIdInmutableMixin, serializers.ModelSerializer)
         if getattr(usuario, 'rol', None) != 'ADMIN':
             data.pop('costo_produccion', None)
         return data
+
+
+class MovimientoInventarioSerializer(OperationIdInmutableMixin, serializers.ModelSerializer):
+    """
+    Contrato API v2 §9 (HU-025, adelanto). Este bloque solo crea ENTRADA por
+    este endpoint (MERMA/AJUSTE_MANUAL quedan para Sprint 4, HU-026); SALIDA_VENTA
+    la genera internamente el cierre de una venta (inventario.services.crear_salida_venta).
+    """
+
+    producto_id = serializers.PrimaryKeyRelatedField(source='producto', queryset=Producto.objects.all())
+    usuario_id = serializers.PrimaryKeyRelatedField(source='usuario', read_only=True)
+    venta_id = serializers.PrimaryKeyRelatedField(source='venta', read_only=True)
+
+    class Meta:
+        model = MovimientoInventario
+        fields = [
+            'id', 'operation_id', 'producto_id', 'usuario_id', 'venta_id',
+            'tipo', 'cantidad', 'sentido', 'fecha', 'motivo',
+        ]
+        read_only_fields = ['fecha']
+
+    def validate_tipo(self, value):
+        if value != MovimientoInventario.Tipo.ENTRADA:
+            raise serializers.ValidationError(
+                'Por ahora este endpoint solo acepta ENTRADA; MERMA y AJUSTE_MANUAL llegan en Sprint 4.'
+            )
+        return value
+
+    def validate_sentido(self, value):
+        if value is not None:
+            raise serializers.ValidationError('sentido solo aplica a AJUSTE_MANUAL (Sprint 4).')
+        return value

@@ -353,3 +353,41 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* Ventas — mapa de mesas */
+
+.cuadricula-mesas {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.tarjeta-mesa {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 16px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tarjeta-mesa:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tarjeta-mesa-numero {
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.tarjeta-mesa-disponible {
+  background: rgba(46, 204, 113, 0.1);
+}
+
+.tarjeta-mesa-ocupada {
+  background: rgba(231, 76, 60, 0.1);
+}

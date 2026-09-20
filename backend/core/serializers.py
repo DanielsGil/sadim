@@ -3,6 +3,31 @@ from rest_framework import serializers
 from .models import ConfiguracionModulo, ConfiguracionPago
 
 
+class OperationIdInmutableMixin:
+    """
+    D6: operation_id se acepta en la creación (o lo genera el servidor si no
+    llega); en la edición no puede modificarse. Compartido por cualquier
+    serializer cuyo modelo tenga un campo operation_id (Categoria, Producto,
+    Mesa, Venta, DetalleVenta, MovimientoInventario...).
+
+    HU-045 (Contrato v2 §13.1): un operation_id repetido no es un error de
+    validación (lo decide core.idempotencia, que devuelve el resultado
+    original), así que se le quita el UniqueValidator que ModelSerializer le
+    agrega automáticamente por ser un campo UNIQUE del modelo.
+    """
+
+    operation_id = serializers.UUIDField(required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['operation_id'].validators = []
+
+    def validate_operation_id(self, value):
+        if self.instance is not None:
+            raise serializers.ValidationError('operation_id no se puede modificar.')
+        return value
+
+
 class ConfiguracionModuloSerializer(serializers.ModelSerializer):
     """Contrato API v2 §12 (D-03, HU-042). Fila única."""
 

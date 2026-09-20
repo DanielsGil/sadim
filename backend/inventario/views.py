@@ -3,13 +3,15 @@ import uuid
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.permissions import SAFE_METHODS
+from rest_framework.response import Response
 
-from core.idempotencia import CreacionIdempotenteMixin
-from core.permissions import EsAdmin, EsAdminUOperador
+from core.idempotencia import CreacionIdempotenteMixin, ejecutar_con_idempotencia
+from core.models import OperacionSincronizacion
+from core.permissions import EsAdminUOperador, ModuloActivoPermission, EsAdmin
 
-from .models import Categoria, Producto
-from .serializers import CategoriaSerializer, ProductoSerializer
-from .services import editar_producto
+from .models import Categoria, MovimientoInventario, Producto
+from .serializers import CategoriaSerializer, MovimientoInventarioSerializer, ProductoSerializer
+from .services import editar_producto, registrar_entrada
 
 
 class PermisosPorRolMixin:
@@ -92,3 +94,55 @@ class ProductoViewSet(
             queryset = queryset.filter(tipo=tipo)
 
         return queryset
+
+
+class MovimientoInventarioViewSet(
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
+    """
+    /api/inventario/movimientos/ — Contrato API v2 §9. Adelanto de HU-025:
+    por ahora solo ENTRADA (ambos roles); MERMA y AJUSTE_MANUAL llegan en
+    Sprint 4 (HU-026).
+    """
+
+    queryset = MovimientoInventario.objects.all()
+    serializer_class = MovimientoInventarioSerializer
+    permission_classes = [EsAdminUOperador, ModuloActivoPermission]
+    modulo = 'inventario'
+
+    def get_queryset(self):
+        queryset = MovimientoInventario.objects.all().order_by('-fecha')
+        producto_id = self.request.query_params.get('producto')
+        if producto_id:
+            queryset = queryset.filter(producto_id=producto_id)
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        datos = serializer.validated_data
+        operation_id = datos.pop('operation_id', None) or uuid.uuid4()
+
+        def _ejecutar():
+            movimiento = registrar_entrada(
+                usuario=request.user,
+                operation_id=operation_id,
+                producto=datos['producto'],
+                cantidad=datos['cantidad'],
+                motivo=datos.get('motivo'),
+            )
+            return movimiento.pk, self.get_serializer(movimiento).data, 201
+
+        def _estado_actual(objeto_id):
+            return self.get_serializer(MovimientoInventario.objects.get(pk=objeto_id)).data
+
+        datos_respuesta, status_code = ejecutar_con_idempotencia(
+            operation_id=operation_id,
+            usuario=request.user,
+            recurso='movimientos_inventario',
+            accion=OperacionSincronizacion.Accion.CREATE,
+            ejecutar=_ejecutar,
+            obtener_estado_actual=_estado_actual,
+        )
+        return Response(datos_respuesta, status=status_code)
