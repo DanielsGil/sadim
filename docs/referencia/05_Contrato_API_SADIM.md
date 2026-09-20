@@ -38,13 +38,13 @@ Cada cambio tiene uno de tres tipos:
 | C-07 | Corrección | §12.1 | El ejemplo de configuración de pagos incluye acepta_efectivo (ERD §5.4). | HU-049 |
 | C-08 | Corrección | §2, §13 | En sincronización, las creaciones incluyen el id generado en el dispositivo (ERD §5.8). | HU-032 |
 | C-09 | Corrección | §8 | Se agregan los ejemplos de creación y cambio de estado de una orden, y estado_pago en la respuesta del abono. | HU-020, HU-021, HU-022 |
-| P-01 | Propuesta | §7, §12.1 | Venta rápida en una sola operación atómica; reglas de creación de ventas y validación del medio de pago. | HU-013, HU-014, HU-016 |
-| P-02 | Propuesta | §10 | Consulta y confirmación de pagos con estado PENDIENTE_VERIFICACION. | HU-050 |
-| P-03 | Propuesta | §2, §13.1 | Idempotencia uniforme para toda escritura con operation_id, en línea y por sincronización, incluidas las acciones que no crean filas. | HU-045, HU-032 |
-| P-04 | Propuesta | §12 | Mapa de rutas por módulo: el catálogo no depende de ninguna bandera y las banderas bloquean rutas, no efectos internos. | HU-042 |
-| P-05 | Propuesta | §8 | Órdenes: avance de un estado a la vez, consumos permitidos hasta LISTO y entrega atómica. | HU-021, HU-041, HU-023 |
-| P-06 | Propuesta | §4 | Usuarios: campos editables y protección del último ADMIN activo. | HU-044 |
-| P-07 | Propuesta | §6 | controla_stock solo puede cambiar cuando stock_actual = 0. | HU-015 |
+| P-01 | Aprobada | §7, §12.1 | Venta rápida en una sola operación atómica; reglas de creación de ventas y validación del medio de pago. | HU-013, HU-014, HU-016 |
+| P-02 | Aprobada | §10 | Consulta y confirmación de pagos con estado PENDIENTE_VERIFICACION. | HU-050 |
+| P-03 | Aprobada | §2, §13.1 | Idempotencia uniforme para toda escritura con operation_id, en línea y por sincronización, incluidas las acciones que no crean filas. | HU-045, HU-032 |
+| P-04 | Aprobada | §12 | Mapa de rutas por módulo: el catálogo no depende de ninguna bandera y las banderas bloquean rutas, no efectos internos. | HU-042 |
+| P-05 | Aprobada | §8 | Órdenes: avance de un estado a la vez, consumos permitidos hasta LISTO y entrega atómica. | HU-021, HU-041, HU-023 |
+| P-06 | Aprobada | §4 | Usuarios: campos editables y protección del último ADMIN activo. | HU-044 |
+| P-07 | Aprobada | §6 | controla_stock solo puede cambiar cuando stock_actual = 0. | HU-015 |
 
 Las decisiones D7 (claves foráneas con PROTECT) y D8 (columna password_hash de 255 caracteres) no afectan este contrato: se formalizan en el ERD (sección 17).
 
