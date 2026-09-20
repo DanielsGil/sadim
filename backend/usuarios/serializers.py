@@ -56,6 +56,63 @@ class RegistroInicialSerializer(serializers.Serializer):
         return attrs
 
 
+class UsuarioSerializer(serializers.ModelSerializer):
+    """Representación de Usuario (HU-044): nunca incluye password ni su hash."""
+
+    class Meta:
+        model = Usuario
+        fields = ['id', 'nombre_completo', 'username', 'rol', 'activo', 'fecha_creacion']
+        read_only_fields = fields
+
+
+class UsuarioCrearSerializer(serializers.ModelSerializer):
+    """
+    POST /api/usuarios/ (Contrato v2 §4, P-06): crea siempre un OPERADOR.
+    rol no es un campo de entrada: no se acepta ni se ignora, simplemente no
+    existe en este serializer.
+    """
+
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+    class Meta:
+        model = Usuario
+        fields = ['id', 'nombre_completo', 'username', 'password', 'activo', 'fecha_creacion']
+        read_only_fields = ['id', 'activo', 'fecha_creacion']
+
+    def validate(self, attrs):
+        usuario_tentativo = Usuario(username=attrs['username'], nombre_completo=attrs['nombre_completo'])
+        try:
+            validate_password(attrs['password'], user=usuario_tentativo)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({'password': list(exc.messages)})
+        return attrs
+
+    def create(self, validated_data):
+        return Usuario.objects.create_user(rol='OPERADOR', **validated_data)
+
+
+class UsuarioActualizarSerializer(serializers.ModelSerializer):
+    """
+    PATCH /api/usuarios/{id}/ (Contrato v2 §4, P-06): solo nombre_completo,
+    password (restablecimiento por el ADMIN) y activo. id, username, rol y
+    fecha_creacion son de solo lectura y se ignoran si se envían.
+    """
+
+    password = serializers.CharField(write_only=True, required=False, trim_whitespace=False)
+
+    class Meta:
+        model = Usuario
+        fields = ['nombre_completo', 'password', 'activo']
+        extra_kwargs = {'nombre_completo': {'required': False}, 'activo': {'required': False}}
+
+    def validate_password(self, value):
+        try:
+            validate_password(value, user=self.instance)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(list(exc.messages))
+        return value
+
+
 class CustomTokenRefreshSerializer(serializers.Serializer):
     """D2: /api/auth/refresh/ recibe refresh_token y devuelve access_token."""
 

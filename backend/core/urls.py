@@ -17,8 +17,14 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
+from .views import ConfiguracionModuloView, ConfiguracionPagoView
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('usuarios.urls')),
     path('api/', include('inventario.urls')),
+    # HU-042 (D-03).
+    path('api/configuracion/modulos/', ConfiguracionModuloView.as_view(), name='configuracion_modulos'),
+    # HU-049 (D-06).
+    path('api/configuracion/pagos/', ConfiguracionPagoView.as_view(), name='configuracion_pagos'),
 ]

@@ -4,9 +4,12 @@ from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.permissions import SAFE_METHODS
 
+from core.idempotencia import CreacionIdempotenteMixin
+from core.permissions import EsAdmin, EsAdminUOperador
+
 from .models import Categoria, Producto
-from .permissions import EsAdmin, EsAdminUOperador
 from .serializers import CategoriaSerializer, ProductoSerializer
+from .services import editar_producto
 
 
 class PermisosPorRolMixin:
@@ -30,27 +33,35 @@ class SoloGetPostPatchMixin:
 class CategoriaViewSet(
     SoloGetPostPatchMixin,
     PermisosPorRolMixin,
+    CreacionIdempotenteMixin,
     mixins.ListModelMixin,
-    mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
     viewsets.GenericViewSet,
 ):
     queryset = Categoria.objects.all()
     serializer_class = CategoriaSerializer
+    recurso_sync = 'categorias'
 
 
 class ProductoViewSet(
     SoloGetPostPatchMixin,
     PermisosPorRolMixin,
+    CreacionIdempotenteMixin,
     mixins.ListModelMixin,
-    mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
     viewsets.GenericViewSet,
 ):
     queryset = Producto.objects.all()  # necesario para que el router derive el basename
     serializer_class = ProductoSerializer
+    recurso_sync = 'productos'
+
+    def perform_update(self, serializer):
+        # P-07: controla_stock solo puede cambiar cuando stock_actual = 0
+        # (409 PRODUCTO_CON_EXISTENCIAS); la regla vive en la capa de
+        # servicios, no en el serializer.
+        editar_producto(producto=serializer.instance, datos=serializer.validated_data)
 
     def get_queryset(self):
         queryset = Producto.objects.all()

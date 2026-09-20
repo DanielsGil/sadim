@@ -4,8 +4,10 @@ import { Layout } from './componentes/Layout'
 import { RutaProtegida } from './componentes/RutaProtegida'
 import { RutaSoloAdmin } from './componentes/RutaSoloAdmin'
 import { Catalogo } from './paginas/Catalogo'
+import { Configuracion } from './paginas/Configuracion'
 import { Inicio } from './paginas/Inicio'
 import { Login } from './paginas/Login'
+import { Usuarios } from './paginas/Usuarios'
 
 function App() {
   return (
@@ -16,6 +18,8 @@ function App() {
           <Route path="/" element={<Inicio />} />
           <Route element={<RutaSoloAdmin />}>
             <Route path="/catalogo" element={<Catalogo />} />
+            <Route path="/usuarios" element={<Usuarios />} />
+            <Route path="/configuracion" element={<Configuracion />} />
           </Route>
         </Route>
       </Route>

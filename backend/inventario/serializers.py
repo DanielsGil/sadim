@@ -6,13 +6,23 @@ from .models import Categoria, Producto
 class OperationIdInmutableMixin:
     """
     D6: operation_id se acepta en POST (o lo genera el servidor si no llega,
-    vía el default del modelo); en PATCH no puede modificarse. Un
-    operation_id repetido responde 400 DATOS_INVALIDOS: lo garantiza el
-    UniqueValidator que DRF agrega solo por declarar este campo con el mismo
-    nombre que el UNIQUE del modelo (no rompe con un IntegrityError de BD).
+    vía CreacionIdempotenteMixin); en PATCH no puede modificarse.
+
+    HU-045 (Contrato v2 §13.1) reemplaza el 400 DATOS_INVALIDOS provisional:
+    un operation_id repetido ya no es un error de validación, así que
+    CreacionIdempotenteMixin decide qué responder (el resultado original, en
+    vez de rechazar la petición). Para eso hay que quitar el UniqueValidator:
+    declararlo con validators=[] no basta, porque ModelSerializer se lo
+    vuelve a agregar después por ser el nombre de un campo UNIQUE del modelo
+    (comprobado en el shell); se quita a mano en __init__, ya con el field
+    construido.
     """
 
     operation_id = serializers.UUIDField(required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['operation_id'].validators = []
 
     def validate_operation_id(self, value):
         if self.instance is not None:

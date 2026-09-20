@@ -163,3 +163,121 @@ class LoginRefreshTests(TestCase):
         self.assertEqual(response.status_code, 401)
         assert_error_shape(self, response)
         self.assertEqual(response.data['code'], 'NO_AUTENTICADO')
+
+
+class UsuarioViewSetTests(TestCase):
+    """/api/usuarios/ — Contrato API v2 §4, P-06, HU-044."""
+
+    def setUp(self):
+        self.admin = Usuario.objects.create_user(
+            username='admin1', password=PASSWORD, nombre_completo='Admin Uno', rol='ADMIN',
+        )
+        self.operador = Usuario.objects.create_user(
+            username='oper1', password=PASSWORD, nombre_completo='Operador Uno', rol='OPERADOR',
+        )
+        self.c_admin = APIClient()
+        self._autenticar(self.c_admin, 'admin1')
+        self.c_operador = APIClient()
+        self._autenticar(self.c_operador, 'oper1')
+        self.c_anonimo = APIClient()
+
+    def _autenticar(self, client, username):
+        response = client.post(
+            '/api/auth/login/', {'username': username, 'password': PASSWORD}, format='json',
+        )
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {response.data['access_token']}")
+
+    def test_admin_crea_operador(self):
+        response = self.c_admin.post('/api/usuarios/', {
+            'nombre_completo': 'Carlos Ruiz', 'username': 'oper2', 'password': PASSWORD,
+            'rol': 'ADMIN',  # se ignora: POST siempre crea OPERADOR (P-06)
+        }, format='json')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['rol'], 'OPERADOR')
+        self.assertNotIn('password', response.data)
+        usuario = Usuario.objects.get(username='oper2')
+        self.assertEqual(usuario.rol, 'OPERADOR')
+
+    def test_admin_lista_usuarios(self):
+        response = self.c_admin.get('/api/usuarios/')
+
+        self.assertEqual(response.status_code, 200)
+        usernames = {usuario['username'] for usuario in response.data}
+        self.assertEqual(usernames, {'admin1', 'oper1'})
+        self.assertNotIn('password', response.data[0])
+
+    def test_patch_solo_aplica_los_campos_permitidos(self):
+        response = self.c_admin.patch(f'/api/usuarios/{self.operador.id}/', {
+            'nombre_completo': 'Operador Editado',
+            'username': 'hackeado',
+            'rol': 'ADMIN',
+            'activo': False,
+        }, format='json')
+
+        self.assertEqual(response.status_code, 200)
+        self.operador.refresh_from_db()
+        self.assertEqual(self.operador.nombre_completo, 'Operador Editado')
+        self.assertFalse(self.operador.activo)
+        self.assertEqual(self.operador.username, 'oper1')  # no cambia
+        self.assertEqual(self.operador.rol, 'OPERADOR')  # no cambia
+
+    def test_patch_restablece_password(self):
+        nueva_password = 'OtraClaveSegura2026!'
+        response = self.c_admin.patch(
+            f'/api/usuarios/{self.operador.id}/', {'password': nueva_password}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('password', response.data)
+        self.operador.refresh_from_db()
+        self.assertTrue(self.operador.check_password(nueva_password))
+
+    def test_desactivar_al_unico_admin_responde_409(self):
+        response = self.c_admin.patch(
+            f'/api/usuarios/{self.admin.id}/', {'activo': False}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 409)
+        assert_error_shape(self, response)
+        self.assertEqual(response.data['code'], 'ULTIMO_ADMIN_ACTIVO')
+        self.admin.refresh_from_db()
+        self.assertTrue(self.admin.activo)
+
+    def test_usuario_desactivado_no_puede_iniciar_sesion(self):
+        self.c_admin.patch(f'/api/usuarios/{self.operador.id}/', {'activo': False}, format='json')
+
+        response = self.c_anonimo.post(
+            '/api/auth/login/', {'username': 'oper1', 'password': PASSWORD}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.data['code'], 'CREDENCIALES_INVALIDAS')
+
+    def test_operador_no_puede_usar_el_recurso(self):
+        for metodo, url, datos in [
+            ('get', '/api/usuarios/', None),
+            ('post', '/api/usuarios/', {'nombre_completo': 'X', 'username': 'x', 'password': PASSWORD}),
+            ('patch', f'/api/usuarios/{self.operador.id}/', {'activo': False}),
+        ]:
+            response = getattr(self.c_operador, metodo)(url, datos, format='json')
+            self.assertEqual(response.status_code, 403, f'{metodo} {url}')
+            assert_error_shape(self, response)
+            self.assertEqual(response.data['code'], 'PERMISO_INSUFICIENTE')
+
+    def test_anonimo_recibe_401(self):
+        response = self.c_anonimo.get('/api/usuarios/')
+
+        self.assertEqual(response.status_code, 401)
+        assert_error_shape(self, response)
+        self.assertEqual(response.data['code'], 'NO_AUTENTICADO')
+
+    def test_username_repetido_responde_400(self):
+        response = self.c_admin.post('/api/usuarios/', {
+            'nombre_completo': 'Otro', 'username': 'oper1', 'password': PASSWORD,
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400)
+        assert_error_shape(self, response)
+        self.assertEqual(response.data['code'], 'DATOS_INVALIDOS')
+        self.assertIn('username', response.data['details'])

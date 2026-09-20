@@ -46,8 +46,12 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework_simplejwt',
+    'core',
     'usuarios',
     'inventario',
+    'ventas',
+    'servicios',
+    'finanzas',
 ]
 
 MIDDLEWARE = [
@@ -119,7 +123,11 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'es-co'
 
-TIME_ZONE = 'UTC'
+# D10: los resúmenes diarios y el cierre de caja dependen del día local, y el
+# Contrato API devuelve fechas con offset -05:00 (ejemplos de las secciones
+# 3, 4, 6 y 10). USE_TZ sigue en True: se guarda en UTC y se convierte al
+# serializar/mostrar.
+TIME_ZONE = 'America/Bogota'
 
 USE_I18N = True
 

@@ -45,9 +45,11 @@ También: `docs/INCONSISTENCIAS.md` (problemas conocidos, con ID), `docs/TRAZABI
 - `SESION_DINAMICA` requiere `mesa_id`; una sola sesión `ABIERTA` por mesa; máximo 15 mesas activas.
 - `MovimientoInventario` es histórico: no se edita; se corrige con un movimiento nuevo.
 - `TRANSFERENCIA` y `QR` no se confirman sin conectividad; `EFECTIVO` sí puede registrarse offline.
-- Toda operación que pueda originarse offline lleva `operation_id` UNIQUE; si llega repetido, el backend devuelve el resultado previo o `ALREADY_PROCESSED` sin repetir efectos.
+- Toda operación que pueda originarse offline lleva `operation_id` UNIQUE; si llega repetido, el backend devuelve el resultado previo (mismo código HTTP; en éxito, el estado actual del objeto; en error, el mismo error) sin repetir efectos. Mecanismo genérico implementado en `backend/core/idempotencia.py` (HU-045, Bloque 1 de Sprint 3): toda escritura en línea con `operation_id` queda registrada en `OperacionSincronizacion` en la misma transacción que sus efectos.
 - Operaciones con efectos en varias tablas (cerrar venta, abono, aplicar consumos, cierre de caja) van en una transacción atómica.
-- Módulo desactivado ⇒ el backend rechaza sus operaciones aunque se invoque la ruta directamente.
+- Módulo desactivado ⇒ el backend rechaza sus operaciones aunque se invoque la ruta directamente. Mecanismo genérico: `core.permissions.ModuloActivoPermission` + un ViewSet solo declara `modulo = "ventas"|"inventario"|"servicios"|"finanzas"` (HU-042). El catálogo y las rutas del núcleo (auth, usuarios, dispositivos, categorías, productos, configuración) no dependen de ninguna bandera.
+- D9: `ConfiguracionModulo` y `ConfiguracionPago` (fila única cada una) se crean en la misma transacción que el registro del primer ADMIN (`/api/auth/register/`), con `actualizado_por_id` = ese ADMIN. `ConfiguracionPago` nace solo con efectivo (`acepta_transferencia = acepta_qr = false`): los valores por defecto true/true/true del ERD violarían de inmediato su propio CHECK de `nequi_llave`. Para una BD que ya tenga ADMIN, una migración de datos (`core/migrations/0002_backfill_configuracion.py`) crea las filas si faltan.
+- D10: `TIME_ZONE = 'America/Bogota'` (`USE_TZ` sigue en `True`): el Contrato devuelve fechas con `-05:00` y los resúmenes diarios y el cierre de caja dependen del día local.
 
 ## Convenciones de código
 - Nombres de modelos, campos, valores ENUM y rutas EXACTAMENTE como en el ERD y el Contrato (en español, sin traducir): `OrdenTrabajo`, `saldo_pendiente`, `SESION_DINAMICA`, `/api/ordenes-trabajo/{id}/abonos/`.
@@ -62,13 +64,13 @@ También: `docs/INCONSISTENCIAS.md` (problemas conocidos, con ID), `docs/TRAZABI
 - Commits y resúmenes con formato: `feat(ventas): cerrar sesión dinámica [HU-018][CU-04]`.
 
 ## Estado del proyecto
-- Sprint 2 (31/08–13/09/2026) cerrándose. HU-001..HU-012 están "En revisión" (terminadas, por revisar).
-- Backlog v2: 48 HU, con columna de trazabilidad (CU / ADR / RN). HU nuevas: HU-041..HU-048.
-- Los documentos de `docs/referencia/` aún NO tienen aplicadas las correcciones de `docs/GUIA_CAMBIOS_DOCUMENTOS.md` (HU-047). Si una tarea depende de una de esas correcciones, pregunta antes.
-- Reglas de negocio: se citan como RN-01..RN-16 (numeración de ERD §5 definida en la guía, paso 1.11).
-- Primer paso en este repo: `/auditar-sprint2` (solo lectura). No se construye nada de Sprint 3 hasta que el equipo revise ese informe.
-- Orden sugerido al iniciar Sprint 3: HU-047 → HU-045 → HU-042 → HU-044 → HU-043 → resto.
-- **Pendientes bloqueantes de Sprint 2** (auditoría 11/09/2026, detalle en `docs/INCONSISTENCIAS.md` sección D): sin commits/`.gitignore`/`requirements.txt` (IMP-10, primero); RBAC del catálogo abierto a cualquier autenticado (IMP-03); `/api/auth/register/` no existe (IMP-02); login devuelve `access`/`refresh` en vez de `access_token`/`refresh_token` (IMP-01); DELETE físico en vez de baja lógica (IMP-04); sin exception handler del Contrato §14 (IMP-07); sin pruebas (IMP-08); SQLite en vez de PostgreSQL (IMP-09). No repliques el patrón de `inventario/` (solo `IsAuthenticated`, sin tests) al construir `ventas`, `servicios` o `finanzas`.
+- Sprint 2 cerrado y fusionado a `main` (fast-forward, 20/09/2026). HU-001..HU-012 terminadas; 33 pruebas de Sprint 2 en verde sobre PostgreSQL.
+- Sprint 3, Bloque 1 ("base transversal") hecho sobre `main`: HU-045 (idempotencia genérica por `operation_id`), HU-042 (config. de módulos + bloqueo `MODULO_DESACTIVADO`), HU-049 (config. de pagos) y HU-044 (CRUD de usuarios) implementadas y probadas (58 pruebas backend en verde; frontend con `npx tsc --noEmit`, `npm run lint` y `npm run build` en verde). Detalle y desviaciones reportadas en el commit `feat(sprint-3): bloque 1 - idempotencia, módulos, pagos, usuarios`.
+- Backlog vigente en el repo: `docs/referencia/Backlog_Definitivo.md` v3 (incluye HU-047, HU-006 y HU-049; no tiene HU-050..HU-052 con ese detalle en la v3 exportada). Contrato API vigente: `docs/referencia/05_Contrato_API_SADIM.md`, ya en "Versión 2" con D1-D8, C-01..C-09 y P-01..P-07.
+- **Pendiente manual:** P-01..P-07 del Contrato quedaron aprobadas por decisión del equipo en el Bloque 1, pero el documento todavía marca su tipo como "Propuesta" — la herramienta de edición de Claude Code tiene bloqueada la escritura en `docs/referencia/` en esta instalación y no pudo aplicar el cambio de estado. Alguien del equipo debe editarlo a mano (cambiar "Propuesta" → "Aprobada" en esas siete filas de la tabla de la sección "Cambios de la versión 2").
+- HU-047 (aplicar correcciones de consistencia a ERD/Contrato/CU/ADR/anteproyecto) sigue "En curso": el Contrato v2 ya corrige varias cosas en su propio texto (sección 17), pero esos ajustes no se han trasladado todavía al ERD v3 ni a los Casos de Uso.
+- El Bloque 1 de Sprint 3 se ejecutó bajo un modo de trabajo puntual que el usuario autorizó solo para ese bloque (sin plan previo, sin actualizar `INCONSISTENCIAS.md`/`TRAZABILIDAD.md`, un solo commit final, migraciones y push a `main` autorizados de antemano). No es el modo por defecto: para el resto de Sprint 3 rigen de nuevo las reglas de este documento salvo que el usuario indique lo contrario otra vez.
+- Orden sugerido para lo que sigue de Sprint 3 (Bloque 2 en adelante): HU-013 → HU-012 (ya en curso) → HU-014 → HU-015 → HU-043, con Mesas y Ventas como siguiente base (dependen de P-01, ya aprobado).
 - Skills disponibles: `/auditar-sprint2`, `/implementar-hu HU-XXX`, `/verificar-consistencia`. Subagente: `revisor-consistencia`.
 
 ## Comandos del proyecto
@@ -79,7 +81,7 @@ Actualizado el 11/09/2026: el repo se reorganizó en `backend/` (Django) y `fron
   - Verificar proyecto: `python backend/manage.py check`
   - Ver estado de migraciones: `python backend/manage.py showmigrations`
   - Comprobar si faltan migraciones (no crea nada): `python backend/manage.py makemigrations --check --dry-run`
-  - Ejecutar pruebas: `python backend/manage.py test usuarios inventario` desde la raíz, o `cd backend && python manage.py test` sin argumentos (ambas formas verificadas). Sin nombrar apps y desde la raíz, Django reporta `Ran 0 tests` porque descubre a partir del directorio de trabajo actual, no de `BASE_DIR`; ver detalle en README.md §7. IMP-08 resuelto: 30 pruebas entre `usuarios` e `inventario`.
+  - Ejecutar pruebas: `python backend/manage.py test usuarios inventario core` desde la raíz, o `cd backend && python manage.py test` sin argumentos (ambas formas verificadas). Sin nombrar apps y desde la raíz, Django reporta `Ran 0 tests` porque descubre a partir del directorio de trabajo actual, no de `BASE_DIR`; ver detalle en README.md §7. IMP-08 resuelto: 58 pruebas entre `usuarios`, `inventario` y `core` (Bloque 1 de Sprint 3 agregó `core` con HU-042/045/049, más HU-044 en `usuarios` y P-07 en `inventario`).
 - Frontend (Vite + React + TypeScript; sin Service Worker todavía, HU-033/Sprint 4), desde `frontend/`:
   - Instalar dependencias: `npm install`
   - Servidor de desarrollo: `npm run dev` (con el backend corriendo en :8000; el proxy de Vite redirige `/api/*`, sin CORS en el backend)

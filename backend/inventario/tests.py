@@ -294,7 +294,10 @@ class CatalogoTests(CatalogoAPITestCase):
         self.assertNotIn('costo_produccion', r_operador.data[0])
         self.assertEqual(r_admin.data[0]['costo_produccion'], Decimal('1500.00'))
 
-    def test_operation_id_duplicado_en_api_responde_400(self):
+    def test_operation_id_duplicado_repite_la_categoria_original(self):
+        # HU-045 (Contrato v2 §13.1): reemplaza el 400 provisional de D6.
+        # Repetir un operation_id ya procesado no crea nada nuevo; devuelve
+        # el mismo código HTTP y el estado actual del objeto original.
         r1 = self.c_admin.post('/api/categorias/', {'nombre': 'Postres'}, format='json')
         op_id = r1.data['operation_id']
 
@@ -302,10 +305,10 @@ class CatalogoTests(CatalogoAPITestCase):
             '/api/categorias/', {'nombre': 'Otra', 'operation_id': op_id}, format='json',
         )
 
-        self.assertEqual(r2.status_code, 400)
-        assert_error_shape(self, r2)
-        self.assertEqual(r2.data['code'], 'DATOS_INVALIDOS')
-        self.assertIn('operation_id', r2.data['details'])
+        self.assertEqual(r2.status_code, 201)
+        self.assertEqual(r2.data, r1.data)
+        self.assertEqual(Categoria.objects.filter(operation_id=op_id).count(), 1)
+        self.assertFalse(Categoria.objects.filter(nombre='Otra').exists())
 
     def test_operation_id_no_se_puede_modificar(self):
         r1 = self.c_admin.post('/api/categorias/', {'nombre': 'Postres'}, format='json')
@@ -318,3 +321,49 @@ class CatalogoTests(CatalogoAPITestCase):
         assert_error_shape(self, r2)
         self.assertEqual(r2.data['code'], 'DATOS_INVALIDOS')
         self.assertIn('operation_id', r2.data['details'])
+
+    def test_operation_id_duplicado_en_producto_repite_el_original(self):
+        r1 = self.c_admin.post('/api/productos/', {
+            'categoria_id': self.categoria.id, 'nombre': 'Cafe', 'tipo': 'REVENTA_DIRECTA',
+            'precio_venta': '3500.00', 'unidad_medida': 'unidad',
+        }, format='json')
+        op_id = r1.data['operation_id']
+
+        r2 = self.c_admin.post('/api/productos/', {
+            'operation_id': op_id, 'categoria_id': self.categoria.id, 'nombre': 'Otro',
+            'tipo': 'REVENTA_DIRECTA', 'precio_venta': '1.00', 'unidad_medida': 'unidad',
+        }, format='json')
+
+        self.assertEqual(r2.status_code, 201)
+        self.assertEqual(r2.data['id'], r1.data['id'])
+        self.assertEqual(r2.data['nombre'], 'Cafe')
+        self.assertEqual(Producto.objects.filter(operation_id=op_id).count(), 1)
+
+    def test_cambiar_controla_stock_con_existencias_responde_409(self):
+        producto = Producto.objects.create(
+            categoria=self.categoria, nombre='Cafe', tipo='REVENTA_DIRECTA',
+            precio_venta=3500, unidad_medida='unidad', stock_actual=5,
+        )
+
+        response = self.c_admin.patch(
+            f'/api/productos/{producto.id}/', {'controla_stock': False}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 409)
+        assert_error_shape(self, response)
+        self.assertEqual(response.data['code'], 'PRODUCTO_CON_EXISTENCIAS')
+        producto.refresh_from_db()
+        self.assertTrue(producto.controla_stock)
+
+    def test_cambiar_controla_stock_sin_existencias_permitido(self):
+        producto = Producto.objects.create(
+            categoria=self.categoria, nombre='Cafe', tipo='REVENTA_DIRECTA',
+            precio_venta=3500, unidad_medida='unidad', stock_actual=0,
+        )
+
+        response = self.c_admin.patch(
+            f'/api/productos/{producto.id}/', {'controla_stock': False}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data['controla_stock'])

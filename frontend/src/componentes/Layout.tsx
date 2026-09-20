@@ -4,9 +4,17 @@ import { useSesion } from '../contexto/SesionContext'
 /**
  * Estructura de escritorio con navegación lateral (criterio de diseño de los
  * wireframes, §"Criterio de diseño"). El OPERADOR solo ve "Inicio"; el ADMIN
- * ve además "Catálogo" (CU-05). Nada que el rol no pueda usar se muestra como
- * acción ejecutable (ADR-005) — aunque la autorización real está en el
- * backend.
+ * ve además "Catálogo", "Usuarios" y "Configuración". Nada que el rol no
+ * pueda usar se muestra como acción ejecutable (ADR-005) — aunque la
+ * autorización real está en el backend.
+ *
+ * HU-042: el catálogo, usuarios y configuración son rutas del núcleo y no
+ * dependen de ninguna bandera (Contrato v2 §12), así que ningún ítem actual
+ * se oculta por módulo. Cuando Sprint 3 agregue pantallas de Ventas,
+ * Inventario, Servicios o Finanzas, cada NavLink de ese módulo debe
+ * condicionarse con `modulos?.x_activo` (por ejemplo
+ * `modulos?.ventas_activo && <NavLink to="/ventas">Ventas</NavLink>`),
+ * igual que aquí se condiciona por rol.
  */
 export function Layout() {
   const { sesion, cerrarSesion } = useSesion()
@@ -26,6 +34,8 @@ export function Layout() {
             Inicio
           </NavLink>
           {sesion?.rol === 'ADMIN' && <NavLink to="/catalogo">Catálogo</NavLink>}
+          {sesion?.rol === 'ADMIN' && <NavLink to="/usuarios">Usuarios</NavLink>}
+          {sesion?.rol === 'ADMIN' && <NavLink to="/configuracion">Configuración</NavLink>}
         </nav>
         <div className="barra-lateral-pie">
           <span className="rol-actual">
