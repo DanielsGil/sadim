@@ -126,3 +126,60 @@ export interface MovimientoInventario {
   fecha: string
   motivo: string | null
 }
+
+export type EstadoOrden = 'RECIBIDO' | 'EN_PROCESO' | 'LISTO' | 'ENTREGADO'
+export type EstadoConsumo = 'PENDIENTE' | 'APLICADO'
+
+/** Abono (Contrato API v2 §8, HU-022). */
+export interface Abono {
+  id: string
+  operation_id: string
+  valor: number
+  medio_pago: MedioPago
+  estado_pago: EstadoPago
+  fecha: string
+  observacion: string | null
+}
+
+/** ConsumoOrden (Contrato API v2 §8, HU-041). No mueve inventario hasta ENTREGADO. */
+export interface ConsumoOrden {
+  id: string
+  operation_id: string
+  producto_id: string
+  cantidad: number
+  estado: EstadoConsumo
+  fecha_registro: string
+}
+
+/** CostoOperativoOrden (Contrato API v2 §8, HU-023). Solo visible para ADMIN. */
+export interface CostoOperativoOrden {
+  id: string
+  operation_id: string
+  concepto: string
+  valor: number
+}
+
+/**
+ * OrdenTrabajo (Contrato API v2 §8, HU-020..HU-023, HU-041). saldo_pendiente
+ * y utilidad_neta los calcula el backend; utilidad_neta nunca llega al
+ * OPERADOR (queda ausente de la respuesta, no en null).
+ */
+export interface OrdenTrabajo {
+  id: string
+  operation_id: string
+  usuario_id: string
+  cliente_nombre: string
+  cliente_telefono: string | null
+  descripcion: string
+  fecha_solicitud: string
+  fecha_entrega_estimada: string
+  estado: EstadoOrden
+  costo_total: number
+  saldo_pendiente: number
+  utilidad_neta?: number
+}
+
+/** GET /api/ordenes-trabajo/{id}/ (D13): agrega la lista de abonos. */
+export interface OrdenTrabajoDetalle extends OrdenTrabajo {
+  abonos: Abono[]
+}

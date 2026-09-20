@@ -24,6 +24,7 @@ urlpatterns = [
     path('api/', include('usuarios.urls')),
     path('api/', include('inventario.urls')),
     path('api/', include('ventas.urls')),
+    path('api/', include('servicios.urls')),
     # HU-042 (D-03).
     path('api/configuracion/modulos/', ConfiguracionModuloView.as_view(), name='configuracion_modulos'),
     # HU-049 (D-06).

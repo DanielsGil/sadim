@@ -19,6 +19,7 @@ export function Layout() {
   const navigate = useNavigate()
   const ventasActivo = modulos?.ventas_activo ?? true
   const inventarioActivo = modulos?.inventario_activo ?? true
+  const serviciosActivo = modulos?.servicios_activo ?? true
 
   async function manejarCerrarSesion() {
     await cerrarSesion()
@@ -36,6 +37,7 @@ export function Layout() {
           {ventasActivo && <NavLink to="/ventas">Ventas</NavLink>}
           {ventasActivo && sesion?.rol === 'ADMIN' && <NavLink to="/mesas">Mesas</NavLink>}
           {inventarioActivo && <NavLink to="/inventario/ingreso">Ingreso de mercancía</NavLink>}
+          {serviciosActivo && <NavLink to="/ordenes">Órdenes</NavLink>}
           {sesion?.rol === 'ADMIN' && <NavLink to="/catalogo">Catálogo</NavLink>}
           {sesion?.rol === 'ADMIN' && <NavLink to="/usuarios">Usuarios</NavLink>}
           {sesion?.rol === 'ADMIN' && <NavLink to="/configuracion">Configuración</NavLink>}

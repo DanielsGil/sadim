@@ -66,3 +66,22 @@ def crear_salida_venta(*, producto, usuario, venta, cantidad):
         tipo=MovimientoInventario.Tipo.SALIDA_VENTA,
         cantidad=cantidad,
     )
+
+
+def crear_salida_servicio(*, producto, usuario, consumo_orden, cantidad):
+    """
+    Efecto de entregar una OrdenTrabajo (R-15, R-18, Bloque 3): un
+    MovimientoInventario SALIDA_SERVICIO por cada ConsumoOrden PENDIENTE cuyo
+    producto controla_stock = true. El llamador (servicios.services) ya
+    bloqueó `producto` con select_for_update() y ya validó existencias
+    (equivalente a D12) antes de invocar esta función.
+    """
+    producto.stock_actual -= cantidad
+    producto.save(update_fields=['stock_actual'])
+    return MovimientoInventario.objects.create(
+        producto=producto,
+        usuario=usuario,
+        consumo_orden=consumo_orden,
+        tipo=MovimientoInventario.Tipo.SALIDA_SERVICIO,
+        cantidad=cantidad,
+    )

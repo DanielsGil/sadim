@@ -19,12 +19,9 @@ class MovimientoInventario(models.Model):
     ERD §5.14. Histórico: no se edita ni se elimina (R-17); una corrección es
     un nuevo movimiento de AJUSTE_MANUAL.
 
-    Bloque 2 de Sprint 3 solo genera/acepta ENTRADA (HU-025, adelantado) y
-    SALIDA_VENTA (como efecto de cerrar una venta, HU-015). MERMA,
-    AJUSTE_MANUAL y SALIDA_SERVICIO quedan para Sprint 4 (HU-026) y para
-    ConsumoOrden (Bloque 3): consumo_orden_id todavía no existe en este
-    modelo porque ConsumoOrden no existe todavía; se agrega junto con su CHECK
-    cuando se cree ese modelo.
+    Bloque 3 de Sprint 3 cierra consumo_orden_id (FK → ConsumoOrden, UNIQUE)
+    y genera SALIDA_SERVICIO al entregar una orden (HU-023/HU-041). MERMA y
+    AJUSTE_MANUAL quedan para Sprint 4 (HU-026).
     """
 
     class Tipo(models.TextChoices):
@@ -47,6 +44,11 @@ class MovimientoInventario(models.Model):
     # Sin restricción UNIQUE: una venta genera un movimiento por cada línea.
     venta = models.ForeignKey(
         'ventas.Venta', on_delete=models.PROTECT, null=True, blank=True, related_name='movimientos_inventario',
+    )
+    # UNIQUE: la relación ConsumoOrden 1:1 MovimientoInventario (ERD §5.14).
+    consumo_orden = models.OneToOneField(
+        'servicios.ConsumoOrden', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='movimiento_inventario',
     )
     tipo = models.CharField(max_length=20, choices=Tipo.choices)
     cantidad = models.DecimalField(max_digits=10, decimal_places=2)
@@ -76,6 +78,14 @@ class MovimientoInventario(models.Model):
             models.CheckConstraint(
                 condition=Q(tipo='SALIDA_VENTA') | Q(venta__isnull=True),
                 name='movinv_venta_nula_fuera_de_salida_venta',
+            ),
+            models.CheckConstraint(
+                condition=~Q(tipo='SALIDA_SERVICIO') | Q(consumo_orden__isnull=False),
+                name='movinv_consumo_requerido_en_salida_servicio',
+            ),
+            models.CheckConstraint(
+                condition=Q(tipo='SALIDA_SERVICIO') | Q(consumo_orden__isnull=True),
+                name='movinv_consumo_nulo_fuera_de_salida_servicio',
             ),
         ]
         indexes = [

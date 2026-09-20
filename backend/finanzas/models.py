@@ -11,12 +11,10 @@ class MovimientoCaja(models.Model):
     ERD §5.15. Detalle histórico de caja (ADR-008); CierreCaja (Sprint 4) solo
     consolida un resumen.
 
-    Bloque 2 de Sprint 3 solo genera INGRESO_VENTA (efecto de cerrar una
-    venta, HU-015/HU-018). abono_id y cierre_caja_id no existen todavía en
-    este modelo porque Abono y CierreCaja no existen todavía (Bloque 3 y
-    Sprint 4); se agregan junto con sus CHECK cuando se creen esos modelos.
-    Por lo mismo, el CHECK "cierre_caja_id NULL si PENDIENTE_VERIFICACION" y
-    la mitad de "INGRESO_ABONO exige abono_id" quedan pendientes.
+    Bloque 3 de Sprint 3 cierra abono_id (FK → Abono, UNIQUE) y genera
+    INGRESO_ABONO como efecto de un abono (HU-022). cierre_caja_id sigue
+    pendiente porque CierreCaja no existe todavía (Sprint 4); el CHECK
+    "cierre_caja_id NULL si PENDIENTE_VERIFICACION" queda pendiente con él.
     """
 
     class Tipo(models.TextChoices):
@@ -42,6 +40,10 @@ class MovimientoCaja(models.Model):
     venta = models.OneToOneField(
         'ventas.Venta', on_delete=models.PROTECT, null=True, blank=True, related_name='movimiento_caja',
     )
+    # UNIQUE: un abono genera un único movimiento de caja.
+    abono = models.OneToOneField(
+        'servicios.Abono', on_delete=models.PROTECT, null=True, blank=True, related_name='movimiento_caja',
+    )
     tipo = models.CharField(max_length=20, choices=Tipo.choices)
     medio_pago = models.CharField(max_length=20, choices=MedioPago.choices)
     estado_pago = models.CharField(
@@ -66,6 +68,14 @@ class MovimientoCaja(models.Model):
             models.CheckConstraint(
                 condition=~Q(tipo='GASTO') | Q(concepto__isnull=False),
                 name='movcaja_concepto_requerido_en_gasto',
+            ),
+            models.CheckConstraint(
+                condition=~Q(tipo='INGRESO_ABONO') | Q(abono__isnull=False),
+                name='movcaja_abono_requerido_en_ingreso_abono',
+            ),
+            models.CheckConstraint(
+                condition=Q(tipo='INGRESO_ABONO') | Q(abono__isnull=True),
+                name='movcaja_abono_nulo_fuera_de_ingreso_abono',
             ),
             # Solo el efectivo se confirma sin verificación adicional: si ya
             # quedó CONFIRMADO sin fecha_confirmacion, el medio tuvo que ser
