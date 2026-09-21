@@ -3,12 +3,15 @@ import './App.css'
 import { Layout } from './componentes/Layout'
 import { RutaProtegida } from './componentes/RutaProtegida'
 import { RutaSoloAdmin } from './componentes/RutaSoloAdmin'
+import { Caja } from './paginas/Caja'
 import { Catalogo } from './paginas/Catalogo'
+import { CierreCaja } from './paginas/CierreCaja'
 import { Configuracion } from './paginas/Configuracion'
 import { DetalleOrden } from './paginas/DetalleOrden'
 import { DetalleSesion } from './paginas/DetalleSesion'
 import { Inicio } from './paginas/Inicio'
 import { IngresoMercancia } from './paginas/IngresoMercancia'
+import { Inventario } from './paginas/Inventario'
 import { Login } from './paginas/Login'
 import { Mesas } from './paginas/Mesas'
 import { Ordenes } from './paginas/Ordenes'
@@ -24,14 +27,17 @@ function App() {
           <Route path="/" element={<Inicio />} />
           <Route path="/ventas" element={<Ventas />} />
           <Route path="/ventas/mesas/:mesaId" element={<DetalleSesion />} />
+          <Route path="/inventario" element={<Inventario />} />
           <Route path="/inventario/ingreso" element={<IngresoMercancia />} />
           <Route path="/ordenes" element={<Ordenes />} />
           <Route path="/ordenes/:ordenId" element={<DetalleOrden />} />
+          <Route path="/caja" element={<Caja />} />
           <Route element={<RutaSoloAdmin />}>
             <Route path="/catalogo" element={<Catalogo />} />
             <Route path="/mesas" element={<Mesas />} />
             <Route path="/usuarios" element={<Usuarios />} />
             <Route path="/configuracion" element={<Configuracion />} />
+            <Route path="/caja/cierre" element={<CierreCaja />} />
           </Route>
         </Route>
       </Route>

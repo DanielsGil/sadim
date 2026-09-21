@@ -55,6 +55,9 @@ class Abono(models.Model):
     class EstadoPago(models.TextChoices):
         CONFIRMADO = 'CONFIRMADO'
         PENDIENTE_VERIFICACION = 'PENDIENTE_VERIFICACION'
+        # D15 (Bloque 4): al anular su MovimientoCaja, el abono también queda
+        # ANULADO y su valor vuelve al saldo_pendiente de la orden.
+        ANULADO = 'ANULADO'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     operation_id = models.UUIDField(unique=True, default=uuid.uuid4)

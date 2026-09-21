@@ -53,6 +53,9 @@ class Venta(models.Model):
     class EstadoPago(models.TextChoices):
         CONFIRMADO = 'CONFIRMADO'
         PENDIENTE_VERIFICACION = 'PENDIENTE_VERIFICACION'
+        # D15 (Bloque 4): un pago electrónico que nunca llega se anula desde
+        # su MovimientoCaja (PATCH /api/movimientos-caja/{id}/anular/).
+        ANULADO = 'ANULADO'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     operation_id = models.UUIDField(unique=True, default=uuid.uuid4)

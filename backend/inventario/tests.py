@@ -371,8 +371,8 @@ class CatalogoTests(CatalogoAPITestCase):
 
 class MovimientoInventarioAPITests(CatalogoAPITestCase):
     """
-    HU-025 (adelanto, Contrato v2 §9): POST/GET /api/inventario/movimientos/.
-    Por ahora solo ENTRADA; MERMA y AJUSTE_MANUAL quedan para Sprint 4 (HU-026).
+    HU-025/HU-026 (Contrato v2 §9): POST/GET /api/inventario/movimientos/.
+    ENTRADA es de ambos roles; MERMA y AJUSTE_MANUAL exigen ADMIN.
     """
 
     def setUp(self):
@@ -398,16 +398,98 @@ class MovimientoInventarioAPITests(CatalogoAPITestCase):
         self.producto.refresh_from_db()
         self.assertEqual(self.producto.stock_actual, 15)
 
-    def test_merma_responde_400_datos_invalidos(self):
+    def test_admin_registra_merma_y_resta_stock(self):
         response = self.c_admin.post('/api/inventario/movimientos/', self._payload(
+            tipo='MERMA', cantidad=2, motivo='Producto vencido',
+        ), format='json')
+
+        self.assertEqual(response.status_code, 201)
+        self.producto.refresh_from_db()
+        self.assertEqual(self.producto.stock_actual, 3)
+
+    def test_merma_mayor_al_stock_responde_409_y_no_cambia_stock(self):
+        response = self.c_admin.post('/api/inventario/movimientos/', self._payload(
+            tipo='MERMA', cantidad=99, motivo='Producto vencido',
+        ), format='json')
+
+        self.assertEqual(response.status_code, 409)
+        assert_error_shape(self, response)
+        self.assertEqual(response.data['code'], 'STOCK_INSUFICIENTE')
+        self.producto.refresh_from_db()
+        self.assertEqual(self.producto.stock_actual, 5)
+
+    def test_operador_no_puede_registrar_merma(self):
+        response = self.c_operador.post('/api/inventario/movimientos/', self._payload(
             tipo='MERMA', motivo='Producto vencido',
+        ), format='json')
+
+        self.assertEqual(response.status_code, 403)
+        assert_error_shape(self, response)
+        self.assertEqual(response.data['code'], 'PERMISO_INSUFICIENTE')
+        self.producto.refresh_from_db()
+        self.assertEqual(self.producto.stock_actual, 5)
+
+    def test_admin_registra_ajuste_manual_suma_y_resta(self):
+        r_suma = self.c_admin.post('/api/inventario/movimientos/', self._payload(
+            tipo='AJUSTE_MANUAL', sentido='SUMA', cantidad=3, motivo='Conteo físico: sobraban 3',
+        ), format='json')
+        self.assertEqual(r_suma.status_code, 201)
+        self.producto.refresh_from_db()
+        self.assertEqual(self.producto.stock_actual, 8)
+
+        r_resta = self.c_admin.post('/api/inventario/movimientos/', self._payload(
+            tipo='AJUSTE_MANUAL', sentido='RESTA', cantidad=2, motivo='Conteo físico: faltaban 2',
+        ), format='json')
+        self.assertEqual(r_resta.status_code, 201)
+        self.producto.refresh_from_db()
+        self.assertEqual(self.producto.stock_actual, 6)
+
+    def test_ajuste_resta_mayor_al_stock_responde_409_y_no_cambia_stock(self):
+        response = self.c_admin.post('/api/inventario/movimientos/', self._payload(
+            tipo='AJUSTE_MANUAL', sentido='RESTA', cantidad=99, motivo='Conteo físico',
+        ), format='json')
+
+        self.assertEqual(response.status_code, 409)
+        assert_error_shape(self, response)
+        self.assertEqual(response.data['code'], 'STOCK_INSUFICIENTE')
+        self.producto.refresh_from_db()
+        self.assertEqual(self.producto.stock_actual, 5)
+
+    def test_operador_no_puede_registrar_ajuste_manual(self):
+        response = self.c_operador.post('/api/inventario/movimientos/', self._payload(
+            tipo='AJUSTE_MANUAL', sentido='SUMA', motivo='Conteo físico',
+        ), format='json')
+
+        self.assertEqual(response.status_code, 403)
+        assert_error_shape(self, response)
+        self.assertEqual(response.data['code'], 'PERMISO_INSUFICIENTE')
+
+    def test_ajuste_manual_sin_sentido_responde_400(self):
+        response = self.c_admin.post('/api/inventario/movimientos/', self._payload(
+            tipo='AJUSTE_MANUAL', motivo='Conteo físico',
         ), format='json')
 
         self.assertEqual(response.status_code, 400)
         assert_error_shape(self, response)
         self.assertEqual(response.data['code'], 'DATOS_INVALIDOS')
-        self.producto.refresh_from_db()
-        self.assertEqual(self.producto.stock_actual, 5)  # no se aplicó nada
+
+    def test_entrada_con_sentido_responde_400(self):
+        response = self.c_admin.post('/api/inventario/movimientos/', self._payload(
+            sentido='SUMA',
+        ), format='json')
+
+        self.assertEqual(response.status_code, 400)
+        assert_error_shape(self, response)
+        self.assertEqual(response.data['code'], 'DATOS_INVALIDOS')
+
+    def test_merma_sin_motivo_responde_400(self):
+        response = self.c_admin.post('/api/inventario/movimientos/', self._payload(
+            tipo='MERMA', motivo='',
+        ), format='json')
+
+        self.assertEqual(response.status_code, 400)
+        assert_error_shape(self, response)
+        self.assertEqual(response.data['code'], 'DATOS_INVALIDOS')
 
     def test_anonimo_recibe_401(self):
         response = self.c_anonimo.get('/api/inventario/movimientos/')
@@ -438,3 +520,50 @@ class MovimientoInventarioAPITests(CatalogoAPITestCase):
         self.assertEqual(primera.data['id'], segunda.data['id'])
         self.producto.refresh_from_db()
         self.assertEqual(self.producto.stock_actual, 15)  # no se sumó dos veces
+
+
+class StockAPITests(CatalogoAPITestCase):
+    """HU-024 (Contrato v2 §9): GET /api/inventario/stock/?categoria=&tipo=."""
+
+    def setUp(self):
+        super().setUp()
+        self.bajo = Producto.objects.create(
+            categoria=self.categoria, nombre='Café', tipo='REVENTA_DIRECTA',
+            precio_venta=3500, unidad_medida='unidad',
+            controla_stock=True, stock_actual=2, stock_minimo=5,
+        )
+        self.suficiente = Producto.objects.create(
+            categoria=self.categoria, nombre='Agua', tipo='REVENTA_DIRECTA',
+            precio_venta=2000, unidad_medida='unidad',
+            controla_stock=True, stock_actual=20, stock_minimo=5,
+        )
+        self.sin_control = Producto.objects.create(
+            categoria=self.categoria, nombre='Tinto preparado', tipo='INSUMO_PRODUCCION',
+            precio_venta=1500, unidad_medida='unidad', controla_stock=False,
+        )
+
+    def _por_nombre(self, response, nombre):
+        return next(item for item in response.data if item['nombre'] == nombre)
+
+    def test_marca_alerta_en_o_bajo_stock_minimo(self):
+        response = self.c_admin.get('/api/inventario/stock/')
+        self.assertEqual(response.status_code, 200)
+
+        self.assertTrue(self._por_nombre(response, 'Café')['alerta_stock_minimo'])
+        self.assertFalse(self._por_nombre(response, 'Agua')['alerta_stock_minimo'])
+
+    def test_producto_sin_control_de_stock_sale_sin_stock_ni_alerta(self):
+        response = self.c_admin.get('/api/inventario/stock/')
+
+        item = self._por_nombre(response, 'Tinto preparado')
+        self.assertIsNone(item['stock_actual'])
+        self.assertIsNone(item['stock_minimo'])
+        self.assertFalse(item['alerta_stock_minimo'])
+
+    def test_ambos_roles_pueden_consultar_stock(self):
+        response = self.c_operador.get('/api/inventario/stock/')
+        self.assertEqual(response.status_code, 200)
+
+    def test_anonimo_recibe_401(self):
+        response = self.c_anonimo.get('/api/inventario/stock/')
+        self.assertEqual(response.status_code, 401)

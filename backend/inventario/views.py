@@ -10,8 +10,8 @@ from core.models import OperacionSincronizacion
 from core.permissions import EsAdminUOperador, ModuloActivoPermission, EsAdmin
 
 from .models import Categoria, MovimientoInventario, Producto
-from .serializers import CategoriaSerializer, MovimientoInventarioSerializer, ProductoSerializer
-from .services import editar_producto, registrar_entrada
+from .serializers import CategoriaSerializer, MovimientoInventarioSerializer, ProductoSerializer, StockProductoSerializer
+from .services import editar_producto, registrar_movimiento
 
 
 class PermisosPorRolMixin:
@@ -101,9 +101,10 @@ class MovimientoInventarioViewSet(
     viewsets.GenericViewSet,
 ):
     """
-    /api/inventario/movimientos/ — Contrato API v2 §9. Adelanto de HU-025:
-    por ahora solo ENTRADA (ambos roles); MERMA y AJUSTE_MANUAL llegan en
-    Sprint 4 (HU-026).
+    /api/inventario/movimientos/ — Contrato API v2 §9 (HU-025, HU-026).
+    ENTRADA es de ambos roles; MERMA y AJUSTE_MANUAL exigen ADMIN, verificado
+    en la capa de servicios porque depende del tipo enviado en el cuerpo, no
+    solo del método HTTP.
     """
 
     queryset = MovimientoInventario.objects.all()
@@ -125,12 +126,14 @@ class MovimientoInventarioViewSet(
         operation_id = datos.pop('operation_id', None) or uuid.uuid4()
 
         def _ejecutar():
-            movimiento = registrar_entrada(
+            movimiento = registrar_movimiento(
                 usuario=request.user,
                 operation_id=operation_id,
+                tipo=datos['tipo'],
                 producto=datos['producto'],
                 cantidad=datos['cantidad'],
                 motivo=datos.get('motivo'),
+                sentido=datos.get('sentido'),
             )
             return movimiento.pk, self.get_serializer(movimiento).data, 201
 
@@ -146,3 +149,29 @@ class MovimientoInventarioViewSet(
             obtener_estado_actual=_estado_actual,
         )
         return Response(datos_respuesta, status=status_code)
+
+
+class StockViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    """/api/inventario/stock/ — Contrato API v2 §9 (HU-024), ambos roles."""
+
+    queryset = Producto.objects.all()
+    serializer_class = StockProductoSerializer
+    permission_classes = [EsAdminUOperador, ModuloActivoPermission]
+    modulo = 'inventario'
+
+    def get_queryset(self):
+        queryset = Producto.objects.all().order_by('nombre')
+
+        usuario = self.request.user
+        if getattr(usuario, 'rol', None) != 'ADMIN':
+            queryset = queryset.filter(activo=True)
+
+        categoria_id = self.request.query_params.get('categoria')
+        if categoria_id:
+            queryset = queryset.filter(categoria_id=categoria_id)
+
+        tipo = self.request.query_params.get('tipo')
+        if tipo:
+            queryset = queryset.filter(tipo=tipo)
+
+        return queryset

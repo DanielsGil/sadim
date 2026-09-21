@@ -1,3 +1,6 @@
 from django.contrib import admin
 
-# Register your models here.
+from .models import CierreCaja, MovimientoCaja
+
+admin.site.register(MovimientoCaja)
+admin.site.register(CierreCaja)

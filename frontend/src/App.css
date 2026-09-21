@@ -289,6 +289,14 @@
   color: #c0392b;
 }
 
+.insignia-alerta-stock {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 13px;
+  background: rgba(230, 126, 34, 0.15);
+  color: #b9540a;
+}
+
 .texto-vacio {
   color: var(--text);
   font-style: italic;

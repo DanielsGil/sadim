@@ -41,14 +41,16 @@ class ProductoSerializer(OperationIdInmutableMixin, serializers.ModelSerializer)
 
 class MovimientoInventarioSerializer(OperationIdInmutableMixin, serializers.ModelSerializer):
     """
-    Contrato API v2 §9 (HU-025, adelanto). Este bloque solo crea ENTRADA por
-    este endpoint (MERMA/AJUSTE_MANUAL quedan para Sprint 4, HU-026); SALIDA_VENTA
-    la genera internamente el cierre de una venta (inventario.services.crear_salida_venta).
+    Contrato API v2 §9 (HU-025, HU-026). Este endpoint crea ENTRADA, MERMA y
+    AJUSTE_MANUAL; SALIDA_VENTA y SALIDA_SERVICIO las genera el sistema
+    internamente (cerrar una venta, entregar una orden), nunca el cliente.
     """
 
     producto_id = serializers.PrimaryKeyRelatedField(source='producto', queryset=Producto.objects.all())
     usuario_id = serializers.PrimaryKeyRelatedField(source='usuario', read_only=True)
     venta_id = serializers.PrimaryKeyRelatedField(source='venta', read_only=True)
+
+    TIPOS_PERMITIDOS = (MovimientoInventario.Tipo.ENTRADA, MovimientoInventario.Tipo.MERMA, MovimientoInventario.Tipo.AJUSTE_MANUAL)
 
     class Meta:
         model = MovimientoInventario
@@ -59,13 +61,55 @@ class MovimientoInventarioSerializer(OperationIdInmutableMixin, serializers.Mode
         read_only_fields = ['fecha']
 
     def validate_tipo(self, value):
-        if value != MovimientoInventario.Tipo.ENTRADA:
+        if value not in self.TIPOS_PERMITIDOS:
             raise serializers.ValidationError(
-                'Por ahora este endpoint solo acepta ENTRADA; MERMA y AJUSTE_MANUAL llegan en Sprint 4.'
+                f'Debe ser uno de: {", ".join(self.TIPOS_PERMITIDOS)}.'
             )
         return value
 
-    def validate_sentido(self, value):
-        if value is not None:
-            raise serializers.ValidationError('sentido solo aplica a AJUSTE_MANUAL (Sprint 4).')
-        return value
+    def validate(self, attrs):
+        tipo = attrs.get('tipo')
+        motivo = attrs.get('motivo')
+        sentido = attrs.get('sentido')
+
+        if tipo in (MovimientoInventario.Tipo.MERMA, MovimientoInventario.Tipo.AJUSTE_MANUAL) and not motivo:
+            raise serializers.ValidationError({'motivo': 'Es obligatorio para MERMA y AJUSTE_MANUAL.'})
+
+        if tipo == MovimientoInventario.Tipo.AJUSTE_MANUAL and not sentido:
+            raise serializers.ValidationError({'sentido': 'Es obligatorio para AJUSTE_MANUAL.'})
+        if tipo != MovimientoInventario.Tipo.AJUSTE_MANUAL and sentido:
+            raise serializers.ValidationError({'sentido': 'Solo aplica a AJUSTE_MANUAL.'})
+
+        return attrs
+
+
+class StockProductoSerializer(serializers.ModelSerializer):
+    """
+    GET /api/inventario/stock/ (Contrato v2 §9, HU-024). Los productos con
+    controla_stock = false no llevan existencias propias: salen sin stock ni
+    alerta (R-18). El Contrato no da un ejemplo de esta respuesta; esta forma
+    reutiliza los mismos nombres de Producto.
+    """
+
+    categoria_id = serializers.PrimaryKeyRelatedField(source='categoria', read_only=True)
+    alerta_stock_minimo = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Producto
+        fields = [
+            'id', 'categoria_id', 'nombre', 'tipo', 'unidad_medida',
+            'controla_stock', 'stock_actual', 'stock_minimo', 'alerta_stock_minimo',
+        ]
+        read_only_fields = fields
+
+    def get_alerta_stock_minimo(self, obj):
+        if not obj.controla_stock:
+            return False
+        return obj.stock_actual <= obj.stock_minimo
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if not instance.controla_stock:
+            data['stock_actual'] = None
+            data['stock_minimo'] = None
+        return data

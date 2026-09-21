@@ -79,7 +79,8 @@ export interface Mesa {
 export type TipoVenta = 'RAPIDA' | 'SESION_DINAMICA'
 export type EstadoVenta = 'ABIERTA' | 'CERRADA' | 'CANCELADA'
 export type MedioPago = 'EFECTIVO' | 'TRANSFERENCIA' | 'QR'
-export type EstadoPago = 'CONFIRMADO' | 'PENDIENTE_VERIFICACION'
+// D15 (Bloque 4): ANULADO se agrega para un pago electrónico que nunca llega.
+export type EstadoPago = 'CONFIRMADO' | 'PENDIENTE_VERIFICACION' | 'ANULADO'
 
 export interface DetalleVenta {
   id: string
@@ -182,4 +183,67 @@ export interface OrdenTrabajo {
 /** GET /api/ordenes-trabajo/{id}/ (D13): agrega la lista de abonos. */
 export interface OrdenTrabajoDetalle extends OrdenTrabajo {
   abonos: Abono[]
+}
+
+/** GET /api/inventario/stock/ (Contrato v2 §9, HU-024). */
+export interface StockProducto {
+  id: string
+  categoria_id: string
+  nombre: string
+  tipo: TipoProducto
+  unidad_medida: string
+  controla_stock: boolean
+  stock_actual: number | null
+  stock_minimo: number | null
+  alerta_stock_minimo: boolean
+}
+
+export type TipoMovimientoCaja = 'INGRESO_VENTA' | 'INGRESO_ABONO' | 'GASTO'
+
+/** MovimientoCaja (Contrato API v2 §10, HU-029/HU-050). */
+export interface MovimientoCaja {
+  id: string
+  operation_id: string
+  usuario_id: string
+  venta_id: string | null
+  abono_id: string | null
+  cierre_caja_id: string | null
+  tipo: TipoMovimientoCaja
+  medio_pago: MedioPago
+  estado_pago: EstadoPago
+  valor: number
+  concepto: string | null
+  fecha: string
+  fecha_confirmacion: string | null
+  motivo_anulacion: string | null
+}
+
+/** GET /api/movimientos-caja/resumen/?fecha= (Contrato v2 §10, CU-20). */
+export interface ResumenCaja {
+  fecha: string
+  ingresos_ventas: number
+  ingresos_abonos: number
+  gastos: number
+  neto: number
+  por_medio_pago: Record<MedioPago, number>
+  pendiente_verificacion: number
+}
+
+/** CierreCaja (Contrato API v2 §11, HU-028). Los totales los calcula el backend. */
+export interface CierreCaja {
+  id: string
+  operation_id: string
+  usuario_id: string
+  fecha: string
+  periodo_inicio: string
+  periodo_fin: string
+  total_ingresos_ventas: number
+  total_ingresos_abonos: number
+  total_gastos: number
+  total_neto: number
+  efectivo_esperado: number
+  efectivo_contado: number
+  diferencia: number
+  observaciones: string | null
+  fecha_creacion: string
 }
