@@ -1,5 +1,6 @@
 """Capa de servicios de Órdenes de trabajo: reglas de negocio, no de forma (ADR-002)."""
 
+import uuid
 from decimal import Decimal
 
 from django.db.models import Sum
@@ -48,14 +49,20 @@ def _estado_pago_para(medio_pago):
 # ---------------------------------------------------------------------------
 
 def crear_orden(*, usuario, operation_id, cliente_nombre, cliente_telefono, descripcion,
-                 fecha_entrega_estimada, costo_total):
-    """Contrato v2 §8 (CU-06): estado inicial RECIBIDO; sin abonos, saldo_pendiente = costo_total."""
+                 fecha_entrega_estimada, costo_total, id=None, fecha=None):
+    """
+    Contrato v2 §8 (CU-06): estado inicial RECIBIDO; sin abonos, saldo_pendiente = costo_total.
+    `id`/`fecha`: /api/sync/ (D17/D18) pasa el id del dispositivo y usa
+    fecha_cliente como fecha_solicitud; en línea se omiten.
+    """
     return OrdenTrabajo.objects.create(
+        id=id or uuid.uuid4(),
         operation_id=operation_id,
         usuario=usuario,
         cliente_nombre=cliente_nombre,
         cliente_telefono=cliente_telefono,
         descripcion=descripcion,
+        fecha_solicitud=fecha or timezone.now(),
         fecha_entrega_estimada=fecha_entrega_estimada,
         estado=OrdenTrabajo.Estado.RECIBIDO,
         costo_total=costo_total,
@@ -106,8 +113,9 @@ def _validar_existencias_de_consumos(consumos, productos):
         )
 
 
-def _entregar(*, orden, usuario):
-    """R-15, R-18, R-16 (P-05): paso a ENTREGADO, atómico."""
+def _entregar(*, orden, usuario, fecha=None):
+    """R-15, R-18, R-16 (P-05): paso a ENTREGADO, atómico. `fecha` (D18): la
+    SALIDA_SERVICIO usa fecha_cliente como fecha de negocio en sincronización."""
     consumos = list(
         orden.consumos.filter(estado=ConsumoOrden.Estado.PENDIENTE).select_related('producto')
     )
@@ -119,6 +127,7 @@ def _entregar(*, orden, usuario):
             producto = productos[str(consumo.producto_id)]
             movimiento = crear_salida_servicio(
                 producto=producto, usuario=usuario, consumo_orden=consumo, cantidad=consumo.cantidad,
+                fecha=fecha,
             )
             consumo.estado = ConsumoOrden.Estado.APLICADO
             consumo.save(update_fields=['estado'])
@@ -131,7 +140,7 @@ def _entregar(*, orden, usuario):
     return orden
 
 
-def cambiar_estado(*, orden, nuevo_estado, usuario):
+def cambiar_estado(*, orden, nuevo_estado, usuario, fecha=None):
     """
     Contrato v2 §8 (CU-07, R-16): solo avanza al estado siguiente (saltar o
     retroceder → 400 DATOS_INVALIDOS); sobre ENTREGADO → 409
@@ -164,7 +173,7 @@ def cambiar_estado(*, orden, nuevo_estado, usuario):
         )
 
     if nuevo_estado == OrdenTrabajo.Estado.ENTREGADO:
-        return _entregar(orden=orden, usuario=usuario)
+        return _entregar(orden=orden, usuario=usuario, fecha=fecha)
 
     orden.estado = nuevo_estado
     orden.save(update_fields=['estado'])
@@ -175,7 +184,7 @@ def cambiar_estado(*, orden, nuevo_estado, usuario):
 # HU-022 — abonos
 # ---------------------------------------------------------------------------
 
-def registrar_abono(*, orden, usuario, operation_id, valor, medio_pago, observacion=None):
+def registrar_abono(*, orden, usuario, operation_id, valor, medio_pago, observacion=None, id=None, fecha=None):
     """
     Contrato v2 §8 (CU-08, R-12..R-14). No está restringido a un estado de la
     orden: el Contrato no lo condiciona (a diferencia de consumos y costos),
@@ -193,9 +202,10 @@ def registrar_abono(*, orden, usuario, operation_id, valor, medio_pago, observac
 
     _validar_medio_pago_habilitado(medio_pago)
 
-    ahora = timezone.now()
+    ahora = fecha or timezone.now()
     estado_pago = _estado_pago_para(medio_pago)
     abono = Abono.objects.create(
+        id=id or uuid.uuid4(),
         operation_id=operation_id,
         orden=orden,
         usuario=usuario,
@@ -226,7 +236,7 @@ def registrar_abono(*, orden, usuario, operation_id, valor, medio_pago, observac
 # HU-041 — consumos
 # ---------------------------------------------------------------------------
 
-def registrar_consumo(*, orden, usuario, operation_id, producto, cantidad):
+def registrar_consumo(*, orden, usuario, operation_id, producto, cantidad, id=None, fecha=None):
     """Contrato v2 §8 (CU-09, R-15): no valida existencias al registrarse."""
     if orden.estado == OrdenTrabajo.Estado.ENTREGADO:
         raise ErrorNegocio(
@@ -243,11 +253,13 @@ def registrar_consumo(*, orden, usuario, operation_id, producto, cantidad):
         )
 
     return ConsumoOrden.objects.create(
+        id=id or uuid.uuid4(),
         operation_id=operation_id,
         orden=orden,
         producto=producto,
         cantidad=cantidad,
         estado=ConsumoOrden.Estado.PENDIENTE,
+        fecha_registro=fecha or timezone.now(),
     )
 
 
@@ -255,7 +267,7 @@ def registrar_consumo(*, orden, usuario, operation_id, producto, cantidad):
 # HU-023 — costos operativos y utilidad neta (solo ADMIN)
 # ---------------------------------------------------------------------------
 
-def registrar_costo(*, orden, usuario, operation_id, concepto, valor):
+def registrar_costo(*, orden, usuario, operation_id, concepto, valor, id=None):
     """Contrato v2 §8 (CU-10, R-16). Recalcula utilidad_neta = costo_total - suma de costos."""
     orden = OrdenTrabajo.objects.select_for_update().get(pk=orden.pk)
 
@@ -267,7 +279,7 @@ def registrar_costo(*, orden, usuario, operation_id, concepto, valor):
         )
 
     costo = CostoOperativoOrden.objects.create(
-        operation_id=operation_id, orden=orden, concepto=concepto, valor=valor,
+        id=id or uuid.uuid4(), operation_id=operation_id, orden=orden, concepto=concepto, valor=valor,
     )
 
     total_costos = orden.costos.aggregate(t=Sum('valor'))['t'] or Decimal('0')

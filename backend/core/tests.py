@@ -1,5 +1,7 @@
 import threading
 import uuid
+from datetime import timedelta
+from decimal import Decimal
 
 from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
@@ -11,7 +13,7 @@ from usuarios.models import Usuario
 
 from .exceptions import ErrorNegocio
 from .idempotencia import ejecutar_con_idempotencia
-from .models import ConfiguracionModulo, ConfiguracionPago, OperacionSincronizacion
+from .models import ConfiguracionModulo, ConfiguracionPago, Dispositivo, OperacionSincronizacion
 from .permissions import ModuloActivoPermission
 
 PASSWORD = 'ClaveSegura2026!'
@@ -301,3 +303,350 @@ class IdempotenciaTests(TransactionTestCase):
         self.assertEqual(Categoria.objects.filter(operation_id=operation_id).count(), 1)
         self.assertEqual(len(resultados), 2)
         self.assertEqual(resultados[0], resultados[1])
+
+
+class DispositivoAPITests(ConfiguracionAPITestCase):
+    """HU-051 — GET, POST y PATCH /api/dispositivos/ (Contrato v2 §4.1). Solo ADMIN."""
+
+    def test_admin_registra_lista_y_autoriza(self):
+        r_post = self.c_admin.post('/api/dispositivos/', {
+            'identificador': str(uuid.uuid4()), 'nombre': 'Tablet mostrador',
+        }, format='json')
+        self.assertEqual(r_post.status_code, 201)
+        self.assertFalse(r_post.data['autorizado_offline'])
+        self.assertEqual(r_post.data['registrado_por_id'], self.admin.id)
+
+        r_list = self.c_admin.get('/api/dispositivos/')
+        self.assertEqual(r_list.status_code, 200)
+        self.assertEqual(len(r_list.data), 1)
+
+        r_patch = self.c_admin.patch(
+            f"/api/dispositivos/{r_post.data['id']}/", {'autorizado_offline': True}, format='json',
+        )
+        self.assertEqual(r_patch.status_code, 200)
+        self.assertTrue(r_patch.data['autorizado_offline'])
+
+    def test_autorizar_revoca_el_anterior(self):
+        d1 = Dispositivo.objects.create(identificador=uuid.uuid4(), nombre='Caja 1', registrado_por=self.admin)
+        d2 = Dispositivo.objects.create(identificador=uuid.uuid4(), nombre='Caja 2', registrado_por=self.admin)
+
+        self.c_admin.patch(f'/api/dispositivos/{d1.id}/', {'autorizado_offline': True}, format='json')
+        r2 = self.c_admin.patch(f'/api/dispositivos/{d2.id}/', {'autorizado_offline': True}, format='json')
+        self.assertEqual(r2.status_code, 200)
+
+        d1.refresh_from_db()
+        d2.refresh_from_db()
+        self.assertFalse(d1.autorizado_offline)
+        self.assertTrue(d2.autorizado_offline)
+
+    def test_desactivar_no_elimina(self):
+        d1 = Dispositivo.objects.create(identificador=uuid.uuid4(), nombre='Caja 1', registrado_por=self.admin)
+        response = self.c_admin.patch(f'/api/dispositivos/{d1.id}/', {'activo': False}, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data['activo'])
+        self.assertTrue(Dispositivo.objects.filter(pk=d1.id).exists())
+
+    def test_operador_no_puede_administrar_dispositivos(self):
+        response = self.c_operador.get('/api/dispositivos/')
+        self.assertEqual(response.status_code, 403)
+        assert_error_shape(self, response)
+
+    def test_anonimo_recibe_401(self):
+        response = self.c_anonimo.get('/api/dispositivos/')
+        self.assertEqual(response.status_code, 401)
+
+
+class SincronizacionAPITestCase(TestCase):
+    """Base común: ADMIN, OPERADOR y un Dispositivo autorizado (HU-032, Bloque 5a)."""
+
+    def setUp(self):
+        self.admin = Usuario.objects.create_user(
+            username='admin1', password=PASSWORD, nombre_completo='Admin Uno', rol='ADMIN',
+        )
+        self.operador = Usuario.objects.create_user(
+            username='oper1', password=PASSWORD, nombre_completo='Operador Uno', rol='OPERADOR',
+        )
+        ConfiguracionModulo.objects.create(actualizado_por=self.admin, actualizado_en=timezone.now())
+        ConfiguracionPago.objects.create(actualizado_por=self.admin, actualizado_en=timezone.now())
+
+        self.c_admin = APIClient()
+        self._autenticar(self.c_admin, 'admin1')
+        self.c_operador = APIClient()
+        self._autenticar(self.c_operador, 'oper1')
+
+        from inventario.models import Categoria, Producto
+        self.categoria = Categoria.objects.create(nombre='Bebidas')
+        self.producto = Producto.objects.create(
+            categoria=self.categoria, nombre='Cafe', tipo='REVENTA_DIRECTA',
+            precio_venta=Decimal('3500.00'), unidad_medida='unidad',
+            controla_stock=True, stock_actual=Decimal('10'),
+        )
+
+        self.dispositivo = Dispositivo.objects.create(
+            identificador=uuid.uuid4(), nombre='Caja 1', registrado_por=self.admin,
+            activo=True, autorizado_offline=True,
+        )
+
+    def _autenticar(self, client, username):
+        response = client.post(
+            '/api/auth/login/', {'username': username, 'password': PASSWORD}, format='json',
+        )
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {response.data['access_token']}")
+
+    def _op(self, resource, action, payload, operation_id=None, fecha_cliente=None):
+        return {
+            'operation_id': str(operation_id or uuid.uuid4()),
+            'resource': resource,
+            'action': action,
+            'fecha_cliente': (fecha_cliente or timezone.now()).isoformat(),
+            'payload': payload,
+        }
+
+    def _sync(self, client, operations, device_id=None):
+        if device_id is None:
+            device_id = str(self.dispositivo.identificador)
+        kwargs = {'HTTP_X_DEVICE_ID': device_id} if device_id else {}
+        return client.post('/api/sync/', {'operations': operations}, format='json', **kwargs)
+
+
+class SincronizacionAPITests(SincronizacionAPITestCase):
+    """HU-032 — POST /api/sync/ (Contrato v2 §13, D16..D21)."""
+
+    def test_sesion_completa_offline_queda_aplicada_con_fecha_y_precio_del_dispositivo(self):
+        from finanzas.models import MovimientoCaja
+        from ventas.models import DetalleVenta, Mesa, Venta
+
+        mesa = Mesa.objects.create(numero=1)
+        fecha_apertura = timezone.now() - timedelta(hours=2)
+        fecha_cierre = fecha_apertura + timedelta(minutes=10)
+        venta_id = uuid.uuid4()
+        detalle_id = uuid.uuid4()
+
+        ops = [
+            self._op('ventas', 'CREATE', {
+                'id': str(venta_id), 'tipo': 'SESION_DINAMICA', 'mesa_id': str(mesa.id),
+            }, fecha_cliente=fecha_apertura),
+            self._op('ventas.detalles', 'CREATE', {
+                'id': str(detalle_id), 'venta_id': str(venta_id), 'producto_id': str(self.producto.id),
+                'cantidad': 2, 'precio_unitario': '3000.00',
+            }, fecha_cliente=fecha_apertura),
+            self._op('ventas.cerrar', 'UPDATE', {
+                'venta_id': str(venta_id), 'medio_pago': 'EFECTIVO',
+            }, fecha_cliente=fecha_cierre),
+        ]
+
+        response = self._sync(self.c_operador, ops)
+        self.assertEqual(response.status_code, 200)
+        resultados = response.data['results']
+        self.assertTrue(all(r['estado'] == 'APLICADA' for r in resultados), resultados)
+
+        venta = Venta.objects.get(pk=venta_id)
+        self.assertEqual(venta.estado, 'CERRADA')
+        self.assertEqual(venta.fecha_apertura, fecha_apertura)
+        self.assertEqual(venta.fecha_cierre, fecha_cierre)
+        self.assertEqual(venta.total, Decimal('6000.00'))  # precio del dispositivo (3000), no el vigente (3500)
+
+        detalle = DetalleVenta.objects.get(pk=detalle_id)
+        self.assertEqual(detalle.precio_unitario, Decimal('3000.00'))
+
+        self.producto.refresh_from_db()
+        self.assertEqual(self.producto.stock_actual, Decimal('8'))
+
+        movimiento = MovimientoCaja.objects.get(venta=venta)
+        self.assertEqual(movimiento.fecha, fecha_cierre)
+        self.assertEqual(movimiento.estado_pago, 'CONFIRMADO')
+
+        self.dispositivo.refresh_from_db()
+        self.assertIsNotNone(self.dispositivo.ultima_sincronizacion)
+
+    def test_reenvio_del_mismo_lote_devuelve_duplicada(self):
+        from ventas.models import Mesa, Venta
+
+        mesa = Mesa.objects.create(numero=2)
+        op = self._op('ventas', 'CREATE', {
+            'id': str(uuid.uuid4()), 'tipo': 'SESION_DINAMICA', 'mesa_id': str(mesa.id),
+        })
+
+        self._sync(self.c_operador, [op])
+        response = self._sync(self.c_operador, [op])
+
+        resultado = response.data['results'][0]
+        self.assertEqual(resultado['estado'], 'DUPLICADA')
+        self.assertEqual(resultado['estado_original'], 'APLICADA')
+        self.assertEqual(Venta.objects.count(), 1)
+
+    def test_dispositivo_no_autorizado_o_sin_encabezado_rechaza_el_lote_sin_registrar_nada(self):
+        op = self._op('categorias', 'CREATE', {'id': str(uuid.uuid4()), 'nombre': 'Postres'})
+
+        sin_encabezado = self._sync(self.c_operador, [op], device_id='')
+        self.assertEqual(sin_encabezado.status_code, 403)
+        self.assertEqual(sin_encabezado.data['code'], 'DISPOSITIVO_NO_AUTORIZADO')
+
+        con_id_ajeno = self._sync(self.c_operador, [op], device_id=str(uuid.uuid4()))
+        self.assertEqual(con_id_ajeno.status_code, 403)
+
+        self.assertEqual(OperacionSincronizacion.objects.filter(operation_id=op['operation_id']).count(), 0)
+
+    def test_stock_insuficiente_al_cerrar_queda_en_conflicto_y_aparece_en_novedades(self):
+        from ventas.models import Mesa, Venta
+
+        mesa = Mesa.objects.create(numero=3)
+        venta_id = uuid.uuid4()
+        ops = [
+            self._op('ventas', 'CREATE', {'id': str(venta_id), 'tipo': 'SESION_DINAMICA', 'mesa_id': str(mesa.id)}),
+            self._op('ventas.detalles', 'CREATE', {
+                'id': str(uuid.uuid4()), 'venta_id': str(venta_id),
+                'producto_id': str(self.producto.id), 'cantidad': 100,
+            }),
+            self._op('ventas.cerrar', 'UPDATE', {'venta_id': str(venta_id), 'medio_pago': 'EFECTIVO'}),
+        ]
+
+        response = self._sync(self.c_operador, ops)
+        resultados = response.data['results']
+        self.assertEqual(resultados[0]['estado'], 'APLICADA')
+        self.assertEqual(resultados[1]['estado'], 'APLICADA')
+        self.assertEqual(resultados[2]['estado'], 'CONFLICTO')
+        self.assertEqual(resultados[2]['codigo_conflicto'], 'STOCK_INSUFICIENTE')
+
+        venta = Venta.objects.get(pk=venta_id)
+        self.assertEqual(venta.estado, 'ABIERTA')
+
+        novedades = self.c_admin.get('/api/sync/novedades/?atendida=false')
+        self.assertEqual(novedades.status_code, 200)
+        self.assertTrue(any(n['operation_id'] == resultados[2]['operation_id'] for n in novedades.data))
+
+    def test_apertura_en_mesa_ocupada_genera_operacion_previa_fallida_en_dependientes(self):
+        from ventas.models import Mesa, Venta
+
+        mesa = Mesa.objects.create(numero=4)
+        Venta.objects.create(
+            tipo=Venta.Tipo.SESION_DINAMICA, usuario=self.admin, mesa=mesa, estado=Venta.Estado.ABIERTA,
+        )
+        mesa.estado = Mesa.Estado.OCUPADA
+        mesa.save(update_fields=['estado'])
+
+        venta_id = uuid.uuid4()
+        ops = [
+            self._op('ventas', 'CREATE', {'id': str(venta_id), 'tipo': 'SESION_DINAMICA', 'mesa_id': str(mesa.id)}),
+            self._op('ventas.detalles', 'CREATE', {
+                'id': str(uuid.uuid4()), 'venta_id': str(venta_id),
+                'producto_id': str(self.producto.id), 'cantidad': 1,
+            }),
+            self._op('ventas.cerrar', 'UPDATE', {'venta_id': str(venta_id), 'medio_pago': 'EFECTIVO'}),
+        ]
+
+        response = self._sync(self.c_operador, ops)
+        resultados = response.data['results']
+        self.assertEqual(resultados[0]['estado'], 'CONFLICTO')
+        self.assertEqual(resultados[0]['codigo_conflicto'], 'MESA_OCUPADA')
+        self.assertEqual(resultados[1]['estado'], 'CONFLICTO')
+        self.assertEqual(resultados[1]['codigo_conflicto'], 'OPERACION_PREVIA_FALLIDA')
+        self.assertEqual(resultados[2]['estado'], 'CONFLICTO')
+        self.assertEqual(resultados[2]['codigo_conflicto'], 'OPERACION_PREVIA_FALLIDA')
+
+    def test_confirmar_pago_y_cierre_de_caja_requieren_conexion(self):
+        ops = [
+            self._op('movimientos-caja.confirmar', 'UPDATE', {'id': str(uuid.uuid4())}),
+            self._op('cierres-caja', 'CREATE', {'fecha': '2026-09-20', 'efectivo_contado': '0.00'}),
+        ]
+        response = self._sync(self.c_admin, ops)
+        resultados = response.data['results']
+        self.assertEqual(resultados[0]['estado'], 'RECHAZADA')
+        self.assertEqual(resultados[0]['codigo_conflicto'], 'PAGO_NO_VERIFICABLE')
+        self.assertEqual(resultados[1]['estado'], 'RECHAZADA')
+        self.assertEqual(resultados[1]['codigo_conflicto'], 'DATOS_INVALIDOS')
+
+    def test_venta_sincronizada_con_fecha_de_periodo_ya_cerrado_entra_al_siguiente_cierre(self):
+        from finanzas.models import MovimientoCaja
+
+        primer_cierre = self.c_admin.post(
+            '/api/cierres-caja/', {'fecha': '2026-01-01', 'efectivo_contado': '0.00'}, format='json',
+        )
+        self.assertEqual(primer_cierre.status_code, 201)
+
+        fecha_vieja = timezone.now() - timedelta(days=5)
+        venta_id = uuid.uuid4()
+        op = self._op('ventas', 'CREATE', {
+            'id': str(venta_id), 'tipo': 'RAPIDA', 'medio_pago': 'EFECTIVO',
+            'detalles': [{'id': str(uuid.uuid4()), 'producto_id': str(self.producto.id), 'cantidad': 1}],
+        }, fecha_cliente=fecha_vieja)
+
+        response = self._sync(self.c_operador, [op])
+        self.assertEqual(response.data['results'][0]['estado'], 'APLICADA')
+
+        movimiento = MovimientoCaja.objects.get(venta_id=venta_id)
+        self.assertEqual(movimiento.fecha, fecha_vieja)
+        self.assertIsNone(movimiento.cierre_caja_id)
+
+        segundo_cierre = self.c_admin.post('/api/cierres-caja/', {
+            'fecha': '2026-01-02', 'efectivo_contado': str(self.producto.precio_venta),
+        }, format='json')
+        self.assertEqual(segundo_cierre.status_code, 201)
+
+        movimiento.refresh_from_db()
+        self.assertEqual(str(movimiento.cierre_caja_id), segundo_cierre.data['id'])
+
+    def test_mesa_por_sincronizacion_exige_rol_admin(self):
+        op = self._op('mesas', 'CREATE', {'id': str(uuid.uuid4()), 'numero': 9})
+        response = self._sync(self.c_operador, [op])
+        resultado = response.data['results'][0]
+        self.assertEqual(resultado['estado'], 'RECHAZADA')
+        self.assertEqual(resultado['codigo_conflicto'], 'PERMISO_INSUFICIENTE')
+
+    def test_recurso_no_incluido_en_la_lista_cerrada_requiere_conexion(self):
+        op = self._op('usuarios', 'CREATE', {'id': str(uuid.uuid4()), 'nombre_completo': 'Nuevo'})
+        response = self._sync(self.c_admin, [op])
+        resultado = response.data['results'][0]
+        self.assertEqual(resultado['estado'], 'RECHAZADA')
+        self.assertEqual(resultado['codigo_conflicto'], 'DATOS_INVALIDOS')
+
+    def test_modulo_desactivado_rechaza_la_operacion_por_sincronizacion(self):
+        config = ConfiguracionModulo.objects.obtener()
+        config.inventario_activo = False
+        config.save(update_fields=['inventario_activo'])
+
+        op = self._op('inventario.movimientos', 'CREATE', {
+            'id': str(uuid.uuid4()), 'tipo': 'ENTRADA', 'producto_id': str(self.producto.id), 'cantidad': 5,
+        })
+        response = self._sync(self.c_operador, [op])
+        resultado = response.data['results'][0]
+        self.assertEqual(resultado['estado'], 'RECHAZADA')
+        self.assertEqual(resultado['codigo_conflicto'], 'MODULO_DESACTIVADO')
+
+    def test_lote_supera_el_maximo_de_operaciones(self):
+        operaciones = [
+            self._op('categorias', 'CREATE', {'id': str(uuid.uuid4()), 'nombre': f'Cat {i}'})
+            for i in range(201)
+        ]
+        response = self._sync(self.c_admin, operaciones)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data['code'], 'DATOS_INVALIDOS')
+
+
+class NovedadSincronizacionAPITests(SincronizacionAPITestCase):
+    """HU-052 — GET y PATCH /api/sync/novedades/ (Contrato v2 §13)."""
+
+    def _generar_novedad(self):
+        op = self._op('movimientos-caja.confirmar', 'UPDATE', {'id': str(uuid.uuid4())})
+        self._sync(self.c_operador, [op])
+        return OperacionSincronizacion.objects.get(operation_id=op['operation_id'])
+
+    def test_ambos_roles_pueden_listar_y_marcar_atendida(self):
+        novedad = self._generar_novedad()
+
+        r_list = self.c_operador.get('/api/sync/novedades/?atendida=false')
+        self.assertEqual(r_list.status_code, 200)
+        self.assertEqual(len(r_list.data), 1)
+
+        r_patch = self.c_admin.patch(
+            f'/api/sync/novedades/{novedad.id}/', {'atendida': True}, format='json',
+        )
+        self.assertEqual(r_patch.status_code, 200)
+        self.assertTrue(r_patch.data['atendida'])
+
+        r_list2 = self.c_operador.get('/api/sync/novedades/?atendida=false')
+        self.assertEqual(len(r_list2.data), 0)
+
+    def test_anonimo_recibe_401(self):
+        response = APIClient().get('/api/sync/novedades/')
+        self.assertEqual(response.status_code, 401)

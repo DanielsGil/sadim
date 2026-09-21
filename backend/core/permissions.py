@@ -41,6 +41,37 @@ CAMPO_BANDERA_POR_MODULO = {
 }
 
 
+def verificar_modulo_activo(modulo):
+    """
+    HU-042: 403 MODULO_DESACTIVADO si el módulo dado está desactivado.
+    Función simple (no permission class) para que el mismo chequeo lo pueda
+    invocar tanto ModuloActivoPermission (rutas en línea) como el despachador
+    de /api/sync/ (Bloque 5a, HU-032), que valida módulo por operación en vez
+    de por endpoint.
+    """
+    if modulo is None:
+        return
+    campo = CAMPO_BANDERA_POR_MODULO[modulo]
+    configuracion = ConfiguracionModulo.objects.obtener()
+    if not getattr(configuracion, campo):
+        raise ErrorNegocio(
+            code='MODULO_DESACTIVADO',
+            message=f'El módulo {modulo} está desactivado.',
+            status_code=403,
+        )
+
+
+def verificar_rol_admin(usuario):
+    """Igual que EsAdmin, pero como función para el despachador de /api/sync/,
+    que valida rol por operación en vez de por permission class de DRF."""
+    if getattr(usuario, 'rol', None) != 'ADMIN':
+        raise ErrorNegocio(
+            code='PERMISO_INSUFICIENTE',
+            message='Solo un ADMIN puede realizar esta operación.',
+            status_code=403,
+        )
+
+
 class ModuloActivoPermission(BasePermission):
     """
     HU-042: bloquea con 403 MODULO_DESACTIVADO las rutas de un módulo
@@ -50,16 +81,5 @@ class ModuloActivoPermission(BasePermission):
     """
 
     def has_permission(self, request, view):
-        modulo = getattr(view, 'modulo', None)
-        if modulo is None:
-            return True
-
-        campo = CAMPO_BANDERA_POR_MODULO[modulo]
-        configuracion = ConfiguracionModulo.objects.obtener()
-        if not getattr(configuracion, campo):
-            raise ErrorNegocio(
-                code='MODULO_DESACTIVADO',
-                message=f'El módulo {modulo} está desactivado.',
-                status_code=403,
-            )
+        verificar_modulo_activo(getattr(view, 'modulo', None))
         return True

@@ -1,5 +1,6 @@
 """Capa de servicios de Caja: gastos, confirmación/anulación de pagos, resumen y cierre."""
 
+import uuid
 from datetime import datetime, time, timedelta
 from decimal import Decimal
 
@@ -41,13 +42,14 @@ def _estado_pago_para(medio_pago):
 # HU-029 — gastos
 # ---------------------------------------------------------------------------
 
-def registrar_gasto(*, usuario, operation_id, medio_pago, valor, concepto):
+def registrar_gasto(*, usuario, operation_id, medio_pago, valor, concepto, id=None, fecha=None):
     """Contrato v2 §10 (CU-14, R-21): POST /api/movimientos-caja/, ambos roles."""
     _validar_medio_pago_habilitado(medio_pago)
 
-    ahora = timezone.now()
+    ahora = fecha or timezone.now()
     estado_pago = _estado_pago_para(medio_pago)
     return MovimientoCaja.objects.create(
+        id=id or uuid.uuid4(),
         operation_id=operation_id,
         usuario=usuario,
         tipo=MovimientoCaja.Tipo.GASTO,

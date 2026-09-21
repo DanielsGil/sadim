@@ -24,7 +24,11 @@ class MesaSerializer(OperationIdInmutableMixin, serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        return crear_mesa(numero=validated_data['numero'], operation_id=validated_data['operation_id'])
+        return crear_mesa(
+            numero=validated_data['numero'],
+            operation_id=validated_data['operation_id'],
+            id=validated_data.get('id'),
+        )
 
 
 class DetalleVentaSerializer(serializers.ModelSerializer):

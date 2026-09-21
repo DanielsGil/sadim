@@ -28,14 +28,14 @@ def _mesas_activas_bloqueadas():
     return list(Mesa.objects.select_for_update().filter(activa=True))
 
 
-def crear_mesa(*, numero, operation_id):
+def crear_mesa(*, numero, operation_id, id=None):
     if len(_mesas_activas_bloqueadas()) >= LIMITE_MESAS_ACTIVAS:
         raise ErrorNegocio(
             code='LIMITE_MESAS_EXCEDIDO',
             message=f'La instalación ya tiene {LIMITE_MESAS_ACTIVAS} mesas activas.',
             status_code=409,
         )
-    return Mesa.objects.create(operation_id=operation_id, numero=numero)
+    return Mesa.objects.create(id=id or uuid.uuid4(), operation_id=operation_id, numero=numero)
 
 
 def editar_mesa(*, mesa, datos):
@@ -137,12 +137,16 @@ def _validar_existencias(detalles, productos):
         )
 
 
-def crear_venta_rapida(*, usuario, operation_id, medio_pago, detalles):
+def crear_venta_rapida(*, usuario, operation_id, medio_pago, detalles, id=None, fecha=None):
     """
     Contrato v2 §7, P-01: registra, en una sola operación, una Venta RAPIDA
     ya CERRADA con sus DetalleVenta, las salidas de inventario correspondientes
     y exactamente un MovimientoCaja INGRESO_VENTA. Si algo falla, no se
     registra nada (la sub-transacción de core.idempotencia revierte todo).
+
+    `id`, `fecha` y el `precio_unitario` opcional de cada detalle son para
+    /api/sync/ (Bloque 5a): D18 usa fecha_cliente como fecha de negocio; D19
+    conserva el precio que el dispositivo cobró en vez del precio vigente.
     """
     _validar_medio_pago_habilitado(medio_pago)
 
@@ -150,9 +154,10 @@ def crear_venta_rapida(*, usuario, operation_id, medio_pago, detalles):
     _validar_productos_activos(detalles, productos)
     _validar_existencias(detalles, productos)
 
-    ahora = timezone.now()
+    ahora = fecha or timezone.now()
     estado_pago = _estado_pago_para(medio_pago)
     venta = Venta.objects.create(
+        id=id or uuid.uuid4(),
         operation_id=operation_id,
         tipo=Venta.Tipo.RAPIDA,
         usuario=usuario,
@@ -168,10 +173,14 @@ def crear_venta_rapida(*, usuario, operation_id, medio_pago, detalles):
     for detalle in detalles:
         producto = productos[str(detalle['producto'].id)]
         cantidad = detalle['cantidad']
-        precio_unitario = producto.precio_venta
+        # D19: en sincronización, conserva el precio que el dispositivo cobró
+        # si llega; en línea (detalle.get('precio_unitario') siempre None)
+        # sigue siendo el precio vigente.
+        precio_unitario = detalle.get('precio_unitario') or producto.precio_venta
         subtotal = precio_unitario * cantidad
         total += subtotal
         DetalleVenta.objects.create(
+            id=detalle.get('id') or uuid.uuid4(),
             operation_id=detalle.get('operation_id') or uuid.uuid4(),
             venta=venta,
             producto=producto,
@@ -180,7 +189,7 @@ def crear_venta_rapida(*, usuario, operation_id, medio_pago, detalles):
             subtotal=subtotal,
         )
         if producto.controla_stock:
-            crear_salida_venta(producto=producto, usuario=usuario, venta=venta, cantidad=cantidad)
+            crear_salida_venta(producto=producto, usuario=usuario, venta=venta, cantidad=cantidad, fecha=ahora)
 
     venta.total = total
     venta.save(update_fields=['total'])
@@ -198,7 +207,7 @@ def crear_venta_rapida(*, usuario, operation_id, medio_pago, detalles):
     return venta
 
 
-def abrir_sesion_dinamica(*, usuario, operation_id, mesa):
+def abrir_sesion_dinamica(*, usuario, operation_id, mesa, id=None, fecha=None):
     """Contrato v2 §7 (CU-02): abre una SESION_DINAMICA sin detalles ni medio de pago."""
     if not mesa.activa:
         raise ErrorNegocio(
@@ -210,11 +219,13 @@ def abrir_sesion_dinamica(*, usuario, operation_id, mesa):
     try:
         with transaction.atomic():
             venta = Venta.objects.create(
+                id=id or uuid.uuid4(),
                 operation_id=operation_id,
                 tipo=Venta.Tipo.SESION_DINAMICA,
                 usuario=usuario,
                 mesa=mesa,
                 estado=Venta.Estado.ABIERTA,
+                fecha_apertura=fecha or timezone.now(),
             )
     except IntegrityError:
         # R-08: el índice único parcial (mesa, estado=ABIERTA) es lo que
@@ -239,8 +250,12 @@ def _recalcular_total(venta):
     return venta
 
 
-def agregar_detalle(*, venta, producto, cantidad, operation_id=None):
-    """Contrato v2 §7 (CU-03): acumula sin afectar existencias (R-09)."""
+def agregar_detalle(*, venta, producto, cantidad, operation_id=None, id=None, precio_unitario=None):
+    """
+    Contrato v2 §7 (CU-03): acumula sin afectar existencias (R-09). D19
+    (Bloque 5a): en sincronización conserva el precio_unitario del
+    dispositivo si llega; en línea (precio_unitario=None) usa el vigente.
+    """
     if venta.estado != Venta.Estado.ABIERTA:
         raise ErrorNegocio(
             code='VENTA_YA_CERRADA',
@@ -255,8 +270,9 @@ def agregar_detalle(*, venta, producto, cantidad, operation_id=None):
             details={'producto_id': str(producto.id)},
         )
 
-    precio_unitario = producto.precio_venta
+    precio_unitario = precio_unitario or producto.precio_venta
     detalle = DetalleVenta.objects.create(
+        id=id or uuid.uuid4(),
         operation_id=operation_id or uuid.uuid4(),
         venta=venta,
         producto=producto,
@@ -281,10 +297,12 @@ def quitar_detalle(*, venta, detalle):
     _recalcular_total(venta)
 
 
-def cerrar_venta(*, venta, usuario, medio_pago):
+def cerrar_venta(*, venta, usuario, medio_pago, fecha=None):
     """
     Contrato v2 §7 (CU-04, R-10): cierra la venta, valida existencias (D12,
-    R-19) y genera sus efectos en una sola transacción.
+    R-19) y genera sus efectos en una sola transacción. `fecha` (D18): la
+    fecha de negocio cuando el cierre viene de /api/sync/ es fecha_cliente,
+    no la hora del servidor.
     """
     venta = Venta.objects.select_for_update().get(pk=venta.pk)
     if venta.estado != Venta.Estado.ABIERTA:
@@ -310,13 +328,13 @@ def cerrar_venta(*, venta, usuario, medio_pago):
     # falta alguna, la sesión sigue ABIERTA y la mesa sigue OCUPADA.
     _validar_existencias(detalles, productos)
 
-    ahora = timezone.now()
+    ahora = fecha or timezone.now()
     estado_pago = _estado_pago_para(medio_pago)
 
     for detalle in detalles_bd:
         producto = productos[str(detalle.producto_id)]
         if producto.controla_stock:
-            crear_salida_venta(producto=producto, usuario=usuario, venta=venta, cantidad=detalle.cantidad)
+            crear_salida_venta(producto=producto, usuario=usuario, venta=venta, cantidad=detalle.cantidad, fecha=ahora)
 
     venta.estado = Venta.Estado.CERRADA
     venta.fecha_cierre = ahora

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import ConfiguracionModulo, ConfiguracionPago
+from .models import ConfiguracionModulo, ConfiguracionPago, Dispositivo
 
 
 class OperationIdInmutableMixin:
@@ -73,3 +73,34 @@ class ConfiguracionPagoSerializer(serializers.ModelSerializer):
                 ),
             })
         return attrs
+
+
+class DispositivoSerializer(serializers.ModelSerializer):
+    """Contrato v2 §4.1 (HU-051). registrado_por_id es de auditoría, no editable."""
+
+    registrado_por_id = serializers.PrimaryKeyRelatedField(source='registrado_por', read_only=True)
+
+    class Meta:
+        model = Dispositivo
+        fields = [
+            'id', 'identificador', 'nombre', 'es_caja', 'autorizado_offline', 'activo',
+            'registrado_por_id', 'fecha_registro', 'ultima_sincronizacion',
+        ]
+        read_only_fields = ['fecha_registro', 'ultima_sincronizacion']
+
+    def create(self, validated_data):
+        from .services import registrar_dispositivo
+        return registrar_dispositivo(
+            usuario=self.context['request'].user,
+            identificador=validated_data['identificador'],
+            nombre=validated_data['nombre'],
+            es_caja=validated_data.get('es_caja', False),
+        )
+
+
+class EditarDispositivoSerializer(serializers.Serializer):
+    """PATCH /api/dispositivos/{id}/: marca es_caja, autoriza o desactiva (CU-21)."""
+
+    es_caja = serializers.BooleanField(required=False)
+    autorizado_offline = serializers.BooleanField(required=False)
+    activo = serializers.BooleanField(required=False)

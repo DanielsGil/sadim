@@ -16,8 +16,14 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 
-from .views import ConfiguracionModuloView, ConfiguracionPagoView
+from .sync import NovedadSincronizacionViewSet, SincronizacionView
+from .views import ConfiguracionModuloView, ConfiguracionPagoView, DispositivoViewSet
+
+router = DefaultRouter()
+router.register(r'dispositivos', DispositivoViewSet, basename='dispositivo')
+router.register(r'sync/novedades', NovedadSincronizacionViewSet, basename='novedad-sincronizacion')
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -26,8 +32,11 @@ urlpatterns = [
     path('api/', include('ventas.urls')),
     path('api/', include('servicios.urls')),
     path('api/', include('finanzas.urls')),
+    path('api/', include(router.urls)),
     # HU-042 (D-03).
     path('api/configuracion/modulos/', ConfiguracionModuloView.as_view(), name='configuracion_modulos'),
     # HU-049 (D-06).
     path('api/configuracion/pagos/', ConfiguracionPagoView.as_view(), name='configuracion_pagos'),
+    # HU-032 (Bloque 5a, Contrato v2 §13).
+    path('api/sync/', SincronizacionView.as_view(), name='sync'),
 ]
