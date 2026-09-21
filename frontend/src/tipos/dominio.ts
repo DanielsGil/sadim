@@ -229,6 +229,81 @@ export interface ResumenCaja {
   pendiente_verificacion: number
 }
 
+/** Dispositivo (Contrato API v2 §4.1, HU-051). Solo ADMIN administra el recurso. */
+export interface Dispositivo {
+  id: string
+  identificador: string
+  nombre: string
+  es_caja: boolean
+  autorizado_offline: boolean
+  activo: boolean
+  registrado_por_id: string
+  fecha_registro: string
+  ultima_sincronizacion: string | null
+}
+
+// --- Sincronización offline (Bloque 5a/5b, ERD §8-§10, Contrato v2 §13) ---
+
+/** D17: lista cerrada de combinaciones resource/action sincronizables. */
+export type RecursoSincronizable =
+  | 'categorias'
+  | 'productos'
+  | 'mesas'
+  | 'ventas'
+  | 'ventas.detalles'
+  | 'ventas.cerrar'
+  | 'ventas.cancelar'
+  | 'ordenes-trabajo'
+  | 'ordenes-trabajo.estado'
+  | 'ordenes-trabajo.abonos'
+  | 'ordenes-trabajo.consumos'
+  | 'ordenes-trabajo.costos'
+  | 'inventario.movimientos'
+  | 'movimientos-caja'
+  | 'configuracion.modulos'
+
+export type AccionSincronizable = 'CREATE' | 'UPDATE' | 'DELETE'
+
+/** Una fila de la cola_sincronizacion (ERD §10): una operación aún no confirmada por el servidor. */
+export interface OperacionCola {
+  operation_id: string
+  resource: RecursoSincronizable
+  action: AccionSincronizable
+  fecha_cliente: string
+  payload: Record<string, unknown>
+  creado_en: string
+  intentos: number
+}
+
+export type EstadoResultadoSync = 'APLICADA' | 'DUPLICADA' | 'RECHAZADA' | 'CONFLICTO'
+
+/** Un elemento de {"results": [...]} en la respuesta de POST /api/sync/ (Contrato v2 §13). */
+export interface ResultadoOperacionSync {
+  operation_id: string
+  estado: EstadoResultadoSync
+  objeto_id: string | null
+  estado_original?: EstadoResultadoSync
+  codigo_conflicto?: string
+  mensaje?: string
+}
+
+/** Novedad (GET/PATCH /api/sync/novedades/, HU-052): un RECHAZADA/CONFLICTO de sincronización. */
+export interface Novedad {
+  id: string
+  operation_id: string
+  dispositivo_id: string | null
+  usuario_id: string
+  recurso: string
+  accion: string
+  estado: 'RECHAZADA' | 'CONFLICTO'
+  codigo_conflicto: string | null
+  mensaje: string | null
+  objeto_id: string | null
+  fecha_cliente: string
+  fecha_procesamiento: string
+  atendida: boolean
+}
+
 /** CierreCaja (Contrato API v2 §11, HU-028). Los totales los calcula el backend. */
 export interface CierreCaja {
   id: string

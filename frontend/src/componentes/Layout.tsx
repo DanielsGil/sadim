@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { IndicadorConectividad } from './IndicadorConectividad'
 import { useSesion } from '../contexto/SesionContext'
 
 /**
@@ -17,14 +19,20 @@ import { useSesion } from '../contexto/SesionContext'
 export function Layout() {
   const { sesion, cerrarSesion, modulos } = useSesion()
   const navigate = useNavigate()
+  const [errorCierre, setErrorCierre] = useState<string | null>(null)
   const ventasActivo = modulos?.ventas_activo ?? true
   const inventarioActivo = modulos?.inventario_activo ?? true
   const serviciosActivo = modulos?.servicios_activo ?? true
   const finanzasActivo = modulos?.finanzas_activo ?? true
 
   async function manejarCerrarSesion() {
-    await cerrarSesion()
-    navigate('/login', { replace: true })
+    try {
+      setErrorCierre(null)
+      await cerrarSesion()
+      navigate('/login', { replace: true })
+    } catch (error) {
+      setErrorCierre(error instanceof Error ? error.message : 'No se pudo cerrar sesión.')
+    }
   }
 
   return (
@@ -42,14 +50,22 @@ export function Layout() {
           {serviciosActivo && <NavLink to="/ordenes">Órdenes</NavLink>}
           {finanzasActivo && <NavLink to="/caja">Caja</NavLink>}
           {finanzasActivo && sesion?.rol === 'ADMIN' && <NavLink to="/caja/cierre">Cierre de caja</NavLink>}
+          <NavLink to="/novedades">Novedades</NavLink>
           {sesion?.rol === 'ADMIN' && <NavLink to="/catalogo">Catálogo</NavLink>}
           {sesion?.rol === 'ADMIN' && <NavLink to="/usuarios">Usuarios</NavLink>}
           {sesion?.rol === 'ADMIN' && <NavLink to="/configuracion">Configuración</NavLink>}
+          {sesion?.rol === 'ADMIN' && <NavLink to="/dispositivos">Dispositivos</NavLink>}
         </nav>
         <div className="barra-lateral-pie">
+          <IndicadorConectividad />
           <span className="rol-actual">
             {sesion?.rol === 'ADMIN' ? 'Administrador' : 'Operador'}
           </span>
+          {errorCierre && (
+            <p className="mensaje-error" role="alert">
+              {errorCierre}
+            </p>
+          )}
           <button type="button" className="boton-secundario" onClick={manejarCerrarSesion}>
             Cerrar sesión
           </button>

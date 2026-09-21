@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 import os
 import sys
+from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -158,6 +159,13 @@ REST_FRAMEWORK = {
     # número JSON (3500.00), no como texto ("3500.00"). El backend sigue
     # calculando con Decimal; esto solo cambia cómo se serializa hacia afuera.
     'COERCE_DECIMAL_TO_STRING': False,
+}
+# D23 (Bloque 5b): el refresh vive 7 días para que una sesión guardada en el
+# dispositivo siga sirviendo varios días sin conexión (ERD §8.1); el access
+# vive poco (30 min) porque el cliente lo renueva solo con /api/auth/refresh/.
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
 }
 AUTH_USER_MODEL = 'usuarios.Usuario'
 

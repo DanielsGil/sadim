@@ -1,11 +1,20 @@
 import type { Categoria, Producto, TipoProducto } from '../tipos/dominio'
+import { cachearCatalogo, estaEnLinea, leerCatalogoLocal } from '../sync/cacheCatalogo'
 import { peticion } from './cliente'
 
 // Contrato API §5/§6. Rutas y nombres de campos exactos (incluye
-// categoria_id, no categoria).
+// categoria_id, no categoria). Las lecturas se cachean en Dexie (ERD §10,
+// almacén "catalogo") para poder mostrarlas sin conexión (HU-030/HU-046).
 
-export function listarCategorias(): Promise<Categoria[]> {
-  return peticion<Categoria[]>('/categorias/')
+export async function listarCategorias(): Promise<Categoria[]> {
+  try {
+    const categorias = await peticion<Categoria[]>('/categorias/')
+    await cachearCatalogo('categorias', categorias)
+    return categorias
+  } catch (error) {
+    if (estaEnLinea()) throw error
+    return leerCatalogoLocal<Categoria>('categorias')
+  }
 }
 
 export function crearCategoria(nombre: string): Promise<Categoria> {
@@ -27,12 +36,24 @@ export interface FiltrosProductos {
   tipo?: TipoProducto
 }
 
-export function listarProductos(filtros: FiltrosProductos = {}): Promise<Producto[]> {
+export async function listarProductos(filtros: FiltrosProductos = {}): Promise<Producto[]> {
   const parametros = new URLSearchParams()
   if (filtros.categoriaId) parametros.set('categoria', filtros.categoriaId)
   if (filtros.tipo) parametros.set('tipo', filtros.tipo)
   const cadena = parametros.toString()
-  return peticion<Producto[]>(`/productos/${cadena ? `?${cadena}` : ''}`)
+  try {
+    const productos = await peticion<Producto[]>(`/productos/${cadena ? `?${cadena}` : ''}`)
+    await cachearCatalogo('productos', productos)
+    return productos
+  } catch (error) {
+    if (estaEnLinea()) throw error
+    const locales = await leerCatalogoLocal<Producto>('productos')
+    return locales.filter(
+      (producto) =>
+        (!filtros.categoriaId || producto.categoria_id === filtros.categoriaId) &&
+        (!filtros.tipo || producto.tipo === filtros.tipo),
+    )
+  }
 }
 
 export interface DatosProducto {

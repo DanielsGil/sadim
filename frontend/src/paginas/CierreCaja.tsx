@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { listarPendientes, obtenerResumen } from '../api/caja'
 import { crearCierre } from '../api/cierres'
 import { ErrorApi } from '../api/errorApi'
+import { contarOperacionesPendientes } from '../sync/enrutador'
 import type { CierreCaja as CierreCajaTipo, MovimientoCaja, ResumenCaja } from '../tipos/dominio'
 
 function fechaHoy(): string {
@@ -21,15 +22,17 @@ export function CierreCaja() {
   const [cerrando, setCerrando] = useState(false)
   const [errorCierre, setErrorCierre] = useState<string | null>(null)
   const [cierreRegistrado, setCierreRegistrado] = useState<CierreCajaTipo | null>(null)
+  const [colaLocalPendiente, setColaLocalPendiente] = useState(0)
 
   function recargar() {
     setCargando(true)
     setError(null)
     setCierreRegistrado(null)
-    Promise.all([obtenerResumen(fecha), listarPendientes()])
-      .then(([resumenObtenido, pendientesObtenidos]) => {
+    Promise.all([obtenerResumen(fecha), listarPendientes(), contarOperacionesPendientes()])
+      .then(([resumenObtenido, pendientesObtenidos, colaLocal]) => {
         setResumen(resumenObtenido)
         setPendientes(pendientesObtenidos)
+        setColaLocalPendiente(colaLocal)
       })
       .catch((err: unknown) => {
         setError(err instanceof ErrorApi ? err.message : 'No se pudo cargar el resumen del día.')
@@ -44,7 +47,7 @@ export function CierreCaja() {
 
   async function manejarCierre(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
-    if (!efectivoContado) return
+    if (!efectivoContado || colaLocalPendiente > 0) return
     setErrorCierre(null)
     setCerrando(true)
     try {
@@ -103,6 +106,13 @@ export function CierreCaja() {
         )
       )}
 
+      {colaLocalPendiente > 0 && (
+        <p className="mensaje-error" role="alert">
+          Hay {colaLocalPendiente} operación(es) de este dispositivo sin sincronizar (E-05): el cierre no se
+          puede confirmar hasta que se apliquen. El arqueo se puede preparar y contar igual.
+        </p>
+      )}
+
       <section className="formulario-panel">
         <h3>Arqueo</h3>
         <form onSubmit={manejarCierre}>
@@ -146,7 +156,7 @@ export function CierreCaja() {
           )}
 
           <div className="acciones-formulario">
-            <button type="submit" disabled={cerrando}>
+            <button type="submit" disabled={cerrando || colaLocalPendiente > 0}>
               {cerrando ? 'Cerrando…' : 'Registrar cierre'}
             </button>
           </div>

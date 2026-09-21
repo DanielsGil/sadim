@@ -2,7 +2,8 @@ import { createContext, use, useCallback, useEffect, useState, type ReactNode } 
 import { cerrarSesion as cerrarSesionApi, iniciarSesion as iniciarSesionApi } from '../api/auth'
 import { obtenerConfiguracionModulos } from '../api/configuracion'
 import { EVENTO_SESION_CERRADA } from '../api/eventosSesion'
-import { obtenerSesion } from '../db/baseLocal'
+import { borrarSesion as borrarSesionLocal, obtenerPropietarioCola, obtenerSesion } from '../db/baseLocal'
+import { contarOperacionesPendientes, dispararSincronizacion } from '../sync/enrutador'
 import type { ConfiguracionModulo, Sesion } from '../tipos/dominio'
 
 interface SesionContextValor {
@@ -43,7 +44,11 @@ export function SesionProvider({ children }: { children: ReactNode }) {
     obtenerSesion().then((sesionGuardada) => {
       setSesion(sesionGuardada ?? null)
       setCargando(false)
-      if (sesionGuardada) void recargarModulos()
+      if (sesionGuardada) {
+        void recargarModulos()
+        // HU-032 lado cliente: sincroniza al abrir la app si ya hay sesión.
+        void dispararSincronizacion()
+      }
     })
 
     // El cliente HTTP dispara esto cuando falla la renovación del token.
@@ -54,11 +59,27 @@ export function SesionProvider({ children }: { children: ReactNode }) {
 
   async function iniciarSesion(username: string, password: string) {
     const nuevaSesion = await iniciarSesionApi(username, password)
+    // D21: si la cola tiene operaciones de OTRO usuario, no se admite este
+    // login (solo el mismo usuario puede seguir para poder sincronizarlas).
+    const propietario = await obtenerPropietarioCola()
+    if (propietario && propietario !== nuevaSesion.usuario_id) {
+      await borrarSesionLocal()
+      throw new Error(
+        'Hay operaciones sin sincronizar de otro usuario en este dispositivo. Inicia sesión con esa cuenta primero.',
+      )
+    }
     setSesion(nuevaSesion)
     await recargarModulos()
   }
 
   async function cerrarSesion() {
+    // D21: no se puede cerrar sesión mientras la cola tenga operaciones.
+    const pendientes = await contarOperacionesPendientes()
+    if (pendientes > 0) {
+      throw new Error(
+        `Hay ${pendientes} operación(es) sin sincronizar. Conéctate para sincronizar antes de cerrar sesión.`,
+      )
+    }
     await cerrarSesionApi()
     setSesion(null)
     setModulos(null)
