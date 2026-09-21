@@ -7,6 +7,7 @@ import {
 } from '../api/configuracion'
 import { ErrorApi } from '../api/errorApi'
 import { useSesion } from '../contexto/SesionContext'
+import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { ConfiguracionModulo, ConfiguracionPago } from '../tipos/dominio'
 
 type CampoModulo = 'ventas_activo' | 'inventario_activo' | 'servicios_activo' | 'finanzas_activo'
@@ -21,6 +22,7 @@ const MODULOS: Array<{ campo: CampoModulo; etiqueta: string }> = [
 /** Configuración de módulos (HU-042) y medios de pago (HU-049) — solo ADMIN. */
 export function Configuracion() {
   const { recargarModulos } = useSesion()
+  const { enLinea } = useEstadoLocal()
   const [modulos, setModulos] = useState<ConfiguracionModulo | null>(null)
   const [pagos, setPagos] = useState<ConfiguracionPago | null>(null)
   const [nequiTitular, setNequiTitular] = useState('')
@@ -170,8 +172,8 @@ export function Configuracion() {
             )}
 
             <div className="acciones-formulario">
-              <button type="submit" disabled={guardandoPagos}>
-                {guardandoPagos ? 'Guardando…' : 'Guardar'}
+              <button type="submit" disabled={guardandoPagos || !enLinea}>
+                {!enLinea ? 'Requiere conexión' : guardandoPagos ? 'Guardando…' : 'Guardar'}
               </button>
             </div>
           </form>

@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { listarOrdenes } from '../api/ordenesTrabajo'
 import { ErrorApi } from '../api/errorApi'
+import { AvisoCopiaLocal, EtiquetaProvisional } from '../componentes/AvisoLocal'
 import { FormularioOrden } from '../componentes/FormularioOrden'
+import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { EstadoOrden, OrdenTrabajo } from '../tipos/dominio'
 
 const ETIQUETA_ESTADO: Record<EstadoOrden, string> = {
@@ -15,6 +17,7 @@ const ETIQUETA_ESTADO: Record<EstadoOrden, string> = {
 /** Órdenes de trabajo (CU-06, HU-020) — listado y filtro por estado. */
 export function Ordenes() {
   const navigate = useNavigate()
+  const { enLinea, provisional } = useEstadoLocal()
   const [ordenes, setOrdenes] = useState<OrdenTrabajo[]>([])
   const [filtroEstado, setFiltroEstado] = useState('')
   const [cargando, setCargando] = useState(true)
@@ -56,6 +59,8 @@ export function Ordenes() {
           </option>
         ))}
       </select>
+
+      <AvisoCopiaLocal enLinea={enLinea} />
 
       {error && (
         <p className="mensaje-error" role="alert">
@@ -99,7 +104,10 @@ export function Ordenes() {
                     {ETIQUETA_ESTADO[orden.estado]}
                   </span>
                 </td>
-                <td>{orden.saldo_pendiente}</td>
+                <td>
+                  {orden.saldo_pendiente}
+                  <EtiquetaProvisional visible={provisional} />
+                </td>
               </tr>
             ))}
             {ordenes.length === 0 && (

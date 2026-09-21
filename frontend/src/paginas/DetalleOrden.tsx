@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { listarProductos } from '../api/catalogo'
 import { obtenerConfiguracionPagos } from '../api/configuracion'
-import { ErrorApi } from '../api/errorApi'
+import { mensajeErrorApi } from '../api/errorApi'
 import {
   cambiarEstadoOrden,
   listarConsumos,
@@ -12,7 +12,9 @@ import {
   registrarConsumo,
   registrarCosto,
 } from '../api/ordenesTrabajo'
+import { AvisoCopiaLocal, EtiquetaProvisional } from '../componentes/AvisoLocal'
 import { useSesion } from '../contexto/SesionContext'
+import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type {
   ConfiguracionPago,
   ConsumoOrden,
@@ -54,6 +56,7 @@ export function DetalleOrden() {
   const navigate = useNavigate()
   const { sesion } = useSesion()
   const esAdmin = sesion?.rol === 'ADMIN'
+  const { enLinea, provisional } = useEstadoLocal()
 
   const [orden, setOrden] = useState<OrdenTrabajoDetalleTipo | null>(null)
   const [consumos, setConsumos] = useState<ConsumoOrden[]>([])
@@ -93,7 +96,7 @@ export function DetalleOrden() {
     }
     Promise.all(pedidos)
       .catch((err: unknown) => {
-        setError(err instanceof ErrorApi ? err.message : 'No se pudo cargar la orden.')
+        setError(mensajeErrorApi(err, 'No se pudo cargar la orden.'))
       })
       .finally(() => setCargando(false))
   }
@@ -127,7 +130,7 @@ export function DetalleOrden() {
       setConfirmandoEntrega(false)
       recargar()
     } catch (err) {
-      setError(err instanceof ErrorApi ? err.message : 'No se pudo avanzar el estado de la orden.')
+      setError(mensajeErrorApi(err, 'No se pudo avanzar el estado de la orden.'))
     } finally {
       setProcesando(false)
     }
@@ -143,7 +146,7 @@ export function DetalleOrden() {
       setMedioPagoAbono('')
       recargar()
     } catch (err) {
-      setError(err instanceof ErrorApi ? err.message : 'No se pudo registrar el abono.')
+      setError(mensajeErrorApi(err, 'No se pudo registrar el abono.'))
     } finally {
       setProcesando(false)
     }
@@ -158,7 +161,7 @@ export function DetalleOrden() {
       setCantidadConsumo('1')
       recargar()
     } catch (err) {
-      setError(err instanceof ErrorApi ? err.message : 'No se pudo registrar el consumo.')
+      setError(mensajeErrorApi(err, 'No se pudo registrar el consumo.'))
     } finally {
       setProcesando(false)
     }
@@ -174,7 +177,7 @@ export function DetalleOrden() {
       setValorCosto('')
       recargar()
     } catch (err) {
-      setError(err instanceof ErrorApi ? err.message : 'No se pudo registrar el costo.')
+      setError(mensajeErrorApi(err, 'No se pudo registrar el costo.'))
     } finally {
       setProcesando(false)
     }
@@ -208,6 +211,8 @@ export function DetalleOrden() {
         </button>
       </div>
 
+      <AvisoCopiaLocal enLinea={enLinea} />
+
       {error && (
         <p className="mensaje-error" role="alert">
           {error}
@@ -223,7 +228,10 @@ export function DetalleOrden() {
         <p className="campo-solo-lectura">Entrega estimada: {orden.fecha_entrega_estimada}</p>
         <p className="campo-solo-lectura">Estado: <strong>{ETIQUETA_ESTADO[orden.estado]}</strong></p>
         <p className="campo-solo-lectura">Costo total: {orden.costo_total}</p>
-        <p className="campo-solo-lectura">Saldo pendiente: <strong>{orden.saldo_pendiente}</strong></p>
+        <p className="campo-solo-lectura">
+          Saldo pendiente: <strong>{orden.saldo_pendiente}</strong>
+          <EtiquetaProvisional visible={provisional} />
+        </p>
 
         {siguienteEstado && (
           <div className="acciones-formulario">
@@ -294,6 +302,11 @@ export function DetalleOrden() {
             <option key={medio} value={medio}>{ETIQUETA_MEDIO_PAGO[medio]}</option>
           ))}
         </select>
+        {provisional && Number(valorAbono) > orden.saldo_pendiente && (
+          <p className="campo-solo-lectura">
+            El valor supera el saldo pendiente que se ve aquí; puede generar un conflicto al sincronizar.
+          </p>
+        )}
         {(medioPagoAbono === 'TRANSFERENCIA' || medioPagoAbono === 'QR') && pagos?.nequi_llave && (
           <p className="campo-solo-lectura">
             Nequi {pagos.nequi_titular ?? ''}: <strong>{pagos.nequi_llave}</strong> — el abono queda
@@ -369,6 +382,7 @@ export function DetalleOrden() {
           <h3>Costos operativos</h3>
           <p className="campo-solo-lectura">
             Utilidad neta: <strong>{utilidadNeta ?? orden.utilidad_neta}</strong>
+            <EtiquetaProvisional visible={provisional} />
           </p>
           <table className="tabla-productos">
             <thead>

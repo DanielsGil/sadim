@@ -7,6 +7,7 @@ import {
 } from '../api/dispositivos'
 import { ErrorApi } from '../api/errorApi'
 import { obtenerOCrearDeviceId } from '../db/baseLocal'
+import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { Dispositivo } from '../tipos/dominio'
 
 /**
@@ -21,6 +22,7 @@ export function Dispositivos() {
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [procesando, setProcesando] = useState(false)
+  const { enLinea } = useEstadoLocal()
 
   function recargar() {
     setCargando(true)
@@ -107,8 +109,8 @@ export function Dispositivos() {
             placeholder="Ej. Caja principal"
           />
           <div className="acciones-formulario">
-            <button type="button" disabled={procesando} onClick={() => void manejarRegistrar()}>
-              Registrar este dispositivo
+            <button type="button" disabled={procesando || !enLinea} onClick={() => void manejarRegistrar()}>
+              {!enLinea ? 'Requiere conexión' : 'Registrar este dispositivo'}
             </button>
           </div>
         </section>
@@ -141,30 +143,30 @@ export function Dispositivos() {
                   {dispositivo.activo && !dispositivo.autorizado_offline && (
                     <button
                       type="button"
-                      disabled={procesando}
+                      disabled={procesando || !enLinea}
                       onClick={() => void manejarAutorizar(dispositivo.id, true)}
                     >
-                      Autorizar
+                      {!enLinea ? 'Requiere conexión' : 'Autorizar'}
                     </button>
                   )}
                   {dispositivo.activo && dispositivo.autorizado_offline && (
                     <button
                       type="button"
                       className="boton-secundario"
-                      disabled={procesando}
+                      disabled={procesando || !enLinea}
                       onClick={() => void manejarAutorizar(dispositivo.id, false)}
                     >
-                      Revocar
+                      {!enLinea ? 'Requiere conexión' : 'Revocar'}
                     </button>
                   )}
                   {dispositivo.activo && (
                     <button
                       type="button"
                       className="boton-secundario"
-                      disabled={procesando}
+                      disabled={procesando || !enLinea}
                       onClick={() => void manejarDesactivar(dispositivo.id)}
                     >
-                      Desactivar
+                      {!enLinea ? 'Requiere conexión' : 'Desactivar'}
                     </button>
                   )}
                 </td>

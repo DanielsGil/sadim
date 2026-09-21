@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { listarProductos } from '../api/catalogo'
 import { obtenerConfiguracionPagos } from '../api/configuracion'
-import { ErrorApi } from '../api/errorApi'
+import { mensajeErrorApi } from '../api/errorApi'
 import { crearVentaRapida } from '../api/ventas'
 import type { ConfiguracionPago, MedioPago, Producto, Venta } from '../tipos/dominio'
 
@@ -86,7 +86,7 @@ export function FormularioVentaRapida({
       )
       onGuardado(venta)
     } catch (err) {
-      setError(err instanceof ErrorApi ? err.message : 'No se pudo registrar la venta.')
+      setError(mensajeErrorApi(err, 'No se pudo registrar la venta.'))
     } finally {
       setGuardando(false)
     }

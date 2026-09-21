@@ -510,6 +510,10 @@ class SincronizacionAPITests(SincronizacionAPITestCase):
 
         venta = Venta.objects.get(pk=venta_id)
         self.assertEqual(venta.estado, 'ABIERTA')
+        # D24: por sync el detalle se acepta aunque supere el stock; el conflicto es del cierre.
+        self.assertEqual(venta.detalles.count(), 1)
+        self.producto.refresh_from_db()
+        self.assertEqual(self.producto.stock_actual, Decimal('10'))
 
         novedades = self.c_admin.get('/api/sync/novedades/?atendida=false')
         self.assertEqual(novedades.status_code, 200)

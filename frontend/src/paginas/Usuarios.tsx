@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { cambiarActivoUsuario, listarUsuarios } from '../api/usuarios'
 import { ErrorApi } from '../api/errorApi'
+import { useEstadoLocal } from '../sync/useEstadoLocal'
 import { FormularioUsuario } from '../componentes/FormularioUsuario'
 import type { Usuario } from '../tipos/dominio'
 
@@ -11,6 +12,7 @@ const ETIQUETA_ROL: Record<Usuario['rol'], string> = {
 
 /** Usuarios (CU-18, HU-044) — solo ADMIN. */
 export function Usuarios() {
+  const { enLinea } = useEstadoLocal()
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -39,8 +41,8 @@ export function Usuarios() {
     <div className="pagina-usuarios">
       <div className="encabezado-seccion">
         <h1>Usuarios</h1>
-        <button type="button" onClick={() => setFormulario('nuevo')}>
-          Nuevo operador
+        <button type="button" disabled={!enLinea} onClick={() => setFormulario('nuevo')}>
+          {!enLinea ? 'Requiere conexión' : 'Nuevo operador'}
         </button>
       </div>
 
@@ -78,9 +80,10 @@ export function Usuarios() {
                   <button
                     type="button"
                     className="boton-secundario"
+                    disabled={!enLinea}
                     onClick={() => setFormulario(usuario)}
                   >
-                    Editar
+                    {!enLinea ? 'Requiere conexión' : 'Editar'}
                   </button>
                   <button
                     type="button"
@@ -89,14 +92,14 @@ export function Usuarios() {
                     // R-04: no se puede desactivar al único ADMIN activo; el
                     // backend lo rechaza igual (409 ULTIMO_ADMIN_ACTIVO), pero
                     // esto evita el intento innecesario.
-                    disabled={usuario.rol === 'ADMIN' && usuario.activo}
+                    disabled={!enLinea || (usuario.rol === 'ADMIN' && usuario.activo)}
                     title={
                       usuario.rol === 'ADMIN' && usuario.activo
                         ? 'No se puede desactivar al único administrador'
                         : undefined
                     }
                   >
-                    {usuario.activo ? 'Desactivar' : 'Reactivar'}
+                    {!enLinea ? 'Requiere conexión' : usuario.activo ? 'Desactivar' : 'Reactivar'}
                   </button>
                 </td>
               </tr>

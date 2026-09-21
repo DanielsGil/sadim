@@ -3,6 +3,7 @@ import { listarPendientes, obtenerResumen } from '../api/caja'
 import { crearCierre } from '../api/cierres'
 import { ErrorApi } from '../api/errorApi'
 import { contarOperacionesPendientes } from '../sync/enrutador'
+import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { CierreCaja as CierreCajaTipo, MovimientoCaja, ResumenCaja } from '../tipos/dominio'
 
 function fechaHoy(): string {
@@ -11,6 +12,7 @@ function fechaHoy(): string {
 
 /** Cierre de caja (CU-15, CU-20, HU-027, HU-028) — solo ADMIN. */
 export function CierreCaja() {
+  const { enLinea } = useEstadoLocal()
   const [fecha, setFecha] = useState(fechaHoy())
   const [resumen, setResumen] = useState<ResumenCaja | null>(null)
   const [pendientes, setPendientes] = useState<MovimientoCaja[]>([])
@@ -156,8 +158,8 @@ export function CierreCaja() {
           )}
 
           <div className="acciones-formulario">
-            <button type="submit" disabled={cerrando || colaLocalPendiente > 0}>
-              {cerrando ? 'Cerrando…' : 'Registrar cierre'}
+            <button type="submit" disabled={cerrando || colaLocalPendiente > 0 || !enLinea}>
+              {!enLinea ? 'Requiere conexión' : cerrando ? 'Cerrando…' : 'Registrar cierre'}
             </button>
           </div>
         </form>

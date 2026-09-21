@@ -1,8 +1,16 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { anularMovimiento, confirmarMovimiento, listarPendientes, registrarGasto } from '../api/caja'
+import {
+  anularMovimiento,
+  confirmarMovimiento,
+  listarPendientes,
+  operationIdsSinSincronizar,
+  registrarGasto,
+} from '../api/caja'
 import { obtenerConfiguracionPagos } from '../api/configuracion'
-import { ErrorApi } from '../api/errorApi'
+import { mensajeErrorApi } from '../api/errorApi'
+import { AvisoCopiaLocal } from '../componentes/AvisoLocal'
 import { useSesion } from '../contexto/SesionContext'
+import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { ConfiguracionPago, MedioPago, MovimientoCaja } from '../tipos/dominio'
 
 const ETIQUETA_MEDIO_PAGO: Record<MedioPago, string> = {
@@ -21,6 +29,7 @@ const ETIQUETA_TIPO: Record<string, string> = {
 export function Caja() {
   const { sesion } = useSesion()
   const esAdmin = sesion?.rol === 'ADMIN'
+  const { enLinea } = useEstadoLocal()
 
   const [pagos, setPagos] = useState<ConfiguracionPago | null>(null)
   const [medioPago, setMedioPago] = useState<MedioPago | ''>('')
@@ -31,6 +40,7 @@ export function Caja() {
   const [mensajeGasto, setMensajeGasto] = useState<string | null>(null)
 
   const [pendientes, setPendientes] = useState<MovimientoCaja[]>([])
+  const [sinSincronizar, setSinSincronizar] = useState<Set<string>>(new Set())
   const [cargandoPendientes, setCargandoPendientes] = useState(true)
   const [errorPendientes, setErrorPendientes] = useState<string | null>(null)
   const [procesandoId, setProcesandoId] = useState<string | null>(null)
@@ -44,9 +54,12 @@ export function Caja() {
     setCargandoPendientes(true)
     setErrorPendientes(null)
     listarPendientes()
-      .then(setPendientes)
+      .then(async (lista) => {
+        setPendientes(lista)
+        setSinSincronizar(await operationIdsSinSincronizar())
+      })
       .catch((err: unknown) => {
-        setErrorPendientes(err instanceof ErrorApi ? err.message : 'No se pudieron cargar los pagos pendientes.')
+        setErrorPendientes(mensajeErrorApi(err, 'No se pudieron cargar los pagos pendientes.'))
       })
       .finally(() => setCargandoPendientes(false))
   }
@@ -78,7 +91,7 @@ export function Caja() {
       setConcepto('')
       recargarPendientes()
     } catch (err) {
-      setErrorGasto(err instanceof ErrorApi ? err.message : 'No se pudo registrar el gasto.')
+      setErrorGasto(mensajeErrorApi(err, 'No se pudo registrar el gasto.'))
     } finally {
       setGuardandoGasto(false)
     }
@@ -91,7 +104,7 @@ export function Caja() {
       await confirmarMovimiento(movimiento.id)
       recargarPendientes()
     } catch (err) {
-      setErrorPendientes(err instanceof ErrorApi ? err.message : 'No se pudo confirmar el pago.')
+      setErrorPendientes(mensajeErrorApi(err, 'No se pudo confirmar el pago.'))
     } finally {
       setProcesandoId(null)
     }
@@ -106,7 +119,7 @@ export function Caja() {
       await anularMovimiento(movimiento.id, motivo)
       recargarPendientes()
     } catch (err) {
-      setErrorPendientes(err instanceof ErrorApi ? err.message : 'No se pudo anular el pago.')
+      setErrorPendientes(mensajeErrorApi(err, 'No se pudo anular el pago.'))
     } finally {
       setProcesandoId(null)
     }
@@ -115,6 +128,7 @@ export function Caja() {
   return (
     <div className="pagina-caja">
       <h1>Caja</h1>
+      <AvisoCopiaLocal enLinea={enLinea} />
 
       <section className="formulario-panel">
         <h3>Registrar gasto</h3>
@@ -197,10 +211,10 @@ export function Caja() {
                   <td className="celda-acciones">
                     <button
                       type="button"
-                      disabled={procesandoId === movimiento.id}
+                      disabled={procesandoId === movimiento.id || !enLinea || sinSincronizar.has(movimiento.operation_id)}
                       onClick={() => void manejarConfirmar(movimiento)}
                     >
-                      Confirmar
+                      {!enLinea ? 'Requiere conexión' : sinSincronizar.has(movimiento.operation_id) ? 'Pendiente de sincronizar' : 'Confirmar'}
                     </button>
                     {esAdmin && (
                       <>
@@ -214,10 +228,15 @@ export function Caja() {
                         <button
                           type="button"
                           className="boton-secundario"
-                          disabled={procesandoId === movimiento.id || !motivoAnulacion[movimiento.id]}
+                          disabled={
+                            procesandoId === movimiento.id ||
+                            !motivoAnulacion[movimiento.id] ||
+                            !enLinea ||
+                            sinSincronizar.has(movimiento.operation_id)
+                          }
                           onClick={() => void manejarAnular(movimiento)}
                         >
-                          Anular
+                          {!enLinea ? 'Requiere conexión' : 'Anular'}
                         </button>
                       </>
                     )}

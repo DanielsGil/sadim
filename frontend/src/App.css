@@ -297,6 +297,15 @@
   color: #b9540a;
 }
 
+.etiqueta-provisional {
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgba(52, 152, 219, 0.15);
+  color: #1f6fa8;
+}
+
 .texto-vacio {
   color: var(--text);
   font-style: italic;

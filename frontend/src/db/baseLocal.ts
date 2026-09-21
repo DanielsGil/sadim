@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import type { ConfiguracionModulo, Novedad, OperacionCola, Sesion } from '../tipos/dominio'
+import type { ConfiguracionModulo, ConfiguracionPago, Novedad, OperacionCola, Sesion } from '../tipos/dominio'
 
 /**
  * Persistencia local con Dexie sobre IndexedDB (ERD D-09, ADR-003/004, §10).
@@ -32,7 +32,7 @@ interface FilaCatalogo {
   datos: Record<string, unknown>
 }
 
-interface FilaOperacionLocal {
+export interface FilaOperacionLocal {
   operation_id: string
   resource: string
   action: 'CREATE' | 'UPDATE' | 'DELETE'
@@ -77,6 +77,8 @@ const CLAVE_SESION = 'sesion'
 const CLAVE_DEVICE_ID = 'device_id'
 const CLAVE_ULTIMA_SINCRONIZACION = 'ultima_sincronizacion'
 const CLAVE_MODULOS = 'modulos'
+// Misma clave que ya escribe sync/reconciliacion.ts al final de cada sincronización.
+const CLAVE_PAGOS = 'configuracion_pagos'
 const CLAVE_PROPIETARIO_COLA = 'propietario_cola'
 
 /** Nunca localStorage: la sesión vive únicamente en IndexedDB vía Dexie. */
@@ -123,6 +125,30 @@ export async function guardarModulosLocal(modulos: ConfiguracionModulo): Promise
 export async function obtenerModulosLocal(): Promise<ConfiguracionModulo | undefined> {
   const fila = await baseLocal.meta.get(CLAVE_MODULOS)
   return fila?.valor as ConfiguracionModulo | undefined
+}
+
+export async function guardarConfiguracionPagosLocal(pagos: ConfiguracionPago): Promise<void> {
+  await baseLocal.meta.put({ clave: CLAVE_PAGOS, valor: pagos })
+}
+
+export async function obtenerConfiguracionPagosLocal(): Promise<ConfiguracionPago | undefined> {
+  const fila = await baseLocal.meta.get(CLAVE_PAGOS)
+  return fila?.valor as ConfiguracionPago | undefined
+}
+
+/**
+ * Copia de LECTURA de lo último que el servidor devolvió (listado de órdenes,
+ * detalle de una orden, stock, etc.), para mostrarlo sin conexión (HU-030,
+ * ERD §10). Solo sirve para mostrar: se reemplaza cada vez que la misma
+ * consulta se hace en línea y nunca se envía al servidor (D22).
+ */
+export async function guardarCopiaLectura(clave: string, valor: unknown): Promise<void> {
+  await baseLocal.meta.put({ clave: `copia:${clave}`, valor })
+}
+
+export async function leerCopiaLectura<T>(clave: string): Promise<T | undefined> {
+  const fila = await baseLocal.meta.get(`copia:${clave}`)
+  return fila?.valor as T | undefined
 }
 
 /**

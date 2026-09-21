@@ -250,11 +250,37 @@ def _recalcular_total(venta):
     return venta
 
 
-def agregar_detalle(*, venta, producto, cantidad, operation_id=None, id=None, precio_unitario=None):
+def _validar_stock_al_agregar(venta, producto, cantidad):
+    """D24 (HU-017/CU-03): valida sin descontar. La cantidad nueva se suma a la
+    que ya tiene ese producto en la misma venta y se compara con stock_actual
+    (bloqueado, para que dos altas simultáneas no pasen ambas la validación)."""
+    producto = Producto.objects.select_for_update().get(pk=producto.pk)
+    if not producto.controla_stock:
+        return
+    ya_agregada = venta.detalles.filter(producto=producto).aggregate(c=Sum('cantidad'))['c'] or Decimal('0')
+    requerida = ya_agregada + cantidad
+    if producto.stock_actual < requerida:
+        raise ErrorNegocio(
+            code='STOCK_INSUFICIENTE',
+            message='Las existencias no alcanzan para completar la operación.',
+            status_code=409,
+            details={'productos': [{
+                'producto_id': str(producto.id),
+                'nombre': producto.nombre,
+                'disponible': str(producto.stock_actual),
+                'requerido': str(requerida),
+            }]},
+        )
+
+
+def agregar_detalle(*, venta, producto, cantidad, operation_id=None, id=None, precio_unitario=None, validar_stock=True):
     """
-    Contrato v2 §7 (CU-03): acumula sin afectar existencias (R-09). D19
-    (Bloque 5a): en sincronización conserva el precio_unitario del
-    dispositivo si llega; en línea (precio_unitario=None) usa el vigente.
+    Contrato v2 §7 (CU-03): acumula sin descontar existencias (R-09). D24:
+    en línea (validar_stock=True) rechaza con 409 STOCK_INSUFICIENTE si la
+    cantidad acumulada supera stock_actual; por /api/sync/ (validar_stock=False)
+    el consumo ya ocurrió sin conexión, así que el conflicto se deja para el
+    cierre (R-19, D12). D19 (Bloque 5a): en sincronización conserva el
+    precio_unitario del dispositivo si llega; en línea usa el vigente.
     """
     if venta.estado != Venta.Estado.ABIERTA:
         raise ErrorNegocio(
@@ -269,6 +295,8 @@ def agregar_detalle(*, venta, producto, cantidad, operation_id=None, id=None, pr
             status_code=409,
             details={'producto_id': str(producto.id)},
         )
+    if validar_stock:
+        _validar_stock_al_agregar(venta, producto, cantidad)
 
     precio_unitario = precio_unitario or producto.precio_venta
     detalle = DetalleVenta.objects.create(

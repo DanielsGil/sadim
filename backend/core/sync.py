@@ -220,6 +220,7 @@ def _sync_agregar_detalle(*, usuario, operation_id, payload, fecha_cliente):
         venta=venta, producto=producto, cantidad=Decimal(str(payload['cantidad'])),
         operation_id=operation_id, id=payload.get('id'),
         precio_unitario=Decimal(str(payload['precio_unitario'])) if payload.get('precio_unitario') is not None else None,
+        validar_stock=False,  # D24: por sync el conflicto de stock se resuelve al cerrar (R-19, D12)
     )
     return detalle.pk, None, 201
 

@@ -1,15 +1,18 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { listarCategorias } from '../api/catalogo'
-import { ErrorApi } from '../api/errorApi'
+import { mensajeErrorApi } from '../api/errorApi'
 import { listarMovimientos, registrarAjusteManual, registrarMerma } from '../api/inventarioMovimientos'
 import { listarStock } from '../api/inventarioStock'
+import { AvisoCopiaLocal, EtiquetaProvisional } from '../componentes/AvisoLocal'
 import { useSesion } from '../contexto/SesionContext'
+import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { Categoria, MovimientoInventario, StockProducto } from '../tipos/dominio'
 
 /** Inventario (CU-11, CU-13, HU-024, HU-026): existencias, historial y ajustes (ADMIN). */
 export function Inventario() {
   const { sesion } = useSesion()
   const esAdmin = sesion?.rol === 'ADMIN'
+  const { enLinea, provisional } = useEstadoLocal()
 
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [filtroCategoria, setFiltroCategoria] = useState('')
@@ -38,7 +41,7 @@ export function Inventario() {
     listarStock(filtroCategoria || undefined, filtroTipo || undefined)
       .then(setStock)
       .catch((err: unknown) => {
-        setError(err instanceof ErrorApi ? err.message : 'No se pudo cargar el stock.')
+        setError(mensajeErrorApi(err, 'No se pudo cargar el stock.'))
       })
       .finally(() => setCargando(false))
   }
@@ -67,7 +70,7 @@ export function Inventario() {
       recargarStock()
       listarMovimientos(productoSeleccionado.id).then(setHistorial)
     } catch (err) {
-      setErrorAjuste(err instanceof ErrorApi ? err.message : 'No se pudo registrar el ajuste.')
+      setErrorAjuste(mensajeErrorApi(err, 'No se pudo registrar el ajuste.'))
     } finally {
       setGuardandoAjuste(false)
     }
@@ -100,6 +103,8 @@ export function Inventario() {
         <option value="REVENTA_DIRECTA">Reventa directa</option>
       </select>
 
+      <AvisoCopiaLocal enLinea={enLinea} />
+
       {error && (
         <p className="mensaje-error" role="alert">
           {error}
@@ -126,7 +131,10 @@ export function Inventario() {
                 onClick={() => verHistorial(producto)}
               >
                 <td>{producto.nombre}</td>
-                <td>{producto.controla_stock ? producto.stock_actual : '—'}</td>
+                <td>
+                  {producto.controla_stock ? producto.stock_actual : '—'}
+                  <EtiquetaProvisional visible={provisional && producto.controla_stock} />
+                </td>
                 <td>{producto.controla_stock ? producto.stock_minimo : '—'}</td>
                 <td>
                   {producto.alerta_stock_minimo && (

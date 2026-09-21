@@ -12,7 +12,7 @@ from finanzas.models import MovimientoCaja
 from inventario.models import Categoria, MovimientoInventario, Producto
 from usuarios.models import Usuario
 
-from .models import Mesa, Venta
+from .models import DetalleVenta, Mesa, Venta
 
 PASSWORD = 'ClaveSegura2026!'
 
@@ -315,11 +315,55 @@ class SesionDinamicaTests(VentasAPITestCase):
         self.assertEqual(self.mesa.estado, Mesa.Estado.DISPONIBLE)
         self.assertEqual(MovimientoCaja.objects.filter(venta_id=venta_id).count(), 1)
 
+    def test_agregar_detalle_sobre_el_stock_responde_409_y_no_crea_nada(self):
+        """D24 (HU-017): en línea se valida al agregar, sin descontar."""
+        venta_id = self._abrir_sesion().data['id']
+
+        response = self.c_operador.post(f'/api/ventas/{venta_id}/detalles/', {
+            'producto_id': str(self.agua.id), 'cantidad': 1,  # agua tiene stock 0
+        }, format='json')
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data['code'], 'STOCK_INSUFICIENTE')
+        self.assertEqual(response.data['details']['productos'][0]['producto_id'], str(self.agua.id))
+        self.assertEqual(DetalleVenta.objects.filter(venta_id=venta_id).count(), 0)
+        self.agua.refresh_from_db()
+        self.assertEqual(self.agua.stock_actual, Decimal('0'))
+
+    def test_agregar_detalle_suma_lo_ya_agregado_del_mismo_producto(self):
+        venta_id = self._abrir_sesion().data['id']  # café: stock 10
+        primero = self.c_operador.post(f'/api/ventas/{venta_id}/detalles/', {
+            'producto_id': str(self.cafe.id), 'cantidad': 6,
+        }, format='json')
+        self.assertEqual(primero.status_code, 201)
+
+        segundo = self.c_operador.post(f'/api/ventas/{venta_id}/detalles/', {
+            'producto_id': str(self.cafe.id), 'cantidad': 5,  # 6 + 5 = 11 > 10
+        }, format='json')
+
+        self.assertEqual(segundo.status_code, 409)
+        self.assertEqual(segundo.data['code'], 'STOCK_INSUFICIENTE')
+        self.assertEqual(DetalleVenta.objects.filter(venta_id=venta_id).count(), 1)
+        self.cafe.refresh_from_db()
+        self.assertEqual(self.cafe.stock_actual, Decimal('10'))  # nada se descontó
+
+    def test_agregar_detalle_de_producto_sin_control_de_stock_nunca_se_valida(self):
+        venta_id = self._abrir_sesion().data['id']
+
+        response = self.c_operador.post(f'/api/ventas/{venta_id}/detalles/', {
+            'producto_id': str(self.torta.id), 'cantidad': 999,
+        }, format='json')
+
+        self.assertEqual(response.status_code, 201)
+
     def test_cerrar_sesion_con_stock_insuficiente_no_aplica_nada(self):
         venta_id = self._abrir_sesion().data['id']
         self.c_operador.post(f'/api/ventas/{venta_id}/detalles/', {
-            'producto_id': str(self.agua.id), 'cantidad': 5,
+            'producto_id': str(self.cafe.id), 'cantidad': 8,
         }, format='json')
+        # Otra venta consume existencias mientras la sesión sigue abierta (R-19 se
+        # vuelve a validar al cerrar).
+        Producto.objects.filter(pk=self.cafe.pk).update(stock_actual=Decimal('2'))
 
         response = self.c_operador.patch(
             f'/api/ventas/{venta_id}/cerrar/', {'medio_pago': 'EFECTIVO'}, format='json',

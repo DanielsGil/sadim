@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { listarProductos } from '../api/catalogo'
-import { ErrorApi } from '../api/errorApi'
+import { mensajeErrorApi } from '../api/errorApi'
 import { registrarEntrada } from '../api/inventarioMovimientos'
 import type { Producto } from '../tipos/dominio'
 
@@ -37,7 +37,7 @@ export function IngresoMercancia() {
       setCantidad('')
       setMotivo('')
     } catch (err) {
-      setError(err instanceof ErrorApi ? err.message : 'No se pudo registrar el ingreso.')
+      setError(mensajeErrorApi(err, 'No se pudo registrar el ingreso.'))
     } finally {
       setGuardando(false)
     }

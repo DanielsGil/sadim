@@ -10,3 +10,29 @@ export class ErrorApi extends Error {
     this.details = details
   }
 }
+
+interface ProductoFaltante {
+  nombre?: string
+  disponible?: string
+  requerido?: string
+}
+
+/**
+ * Mensaje claro para mostrar según el `code` del backend. Para
+ * STOCK_INSUFICIENTE (D24/D12) nombra los productos con lo disponible y lo
+ * requerido; para el resto usa el `message` del Contrato §14.
+ */
+export function mensajeErrorApi(err: unknown, porDefecto: string): string {
+  if (!(err instanceof ErrorApi)) return porDefecto
+  if (err.code === 'STOCK_INSUFICIENTE') {
+    const productos = (err.details.productos as ProductoFaltante[] | undefined) ?? []
+    if (productos.length > 0) {
+      const detalle = productos
+        .map((p) => `${p.nombre ?? 'producto'} (disponible: ${p.disponible ?? '?'}, pedido: ${p.requerido ?? '?'})`)
+        .join('; ')
+      return `No hay existencias suficientes: ${detalle}.`
+    }
+    return 'No hay existencias suficientes para esta operación.'
+  }
+  return err.message
+}

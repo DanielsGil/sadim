@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { listarProductos } from '../api/catalogo'
 import { obtenerConfiguracionPagos } from '../api/configuracion'
-import { ErrorApi } from '../api/errorApi'
+import { mensajeErrorApi } from '../api/errorApi'
 import { agregarDetalle, cancelarVenta, cerrarVenta, listarVentas, quitarDetalle } from '../api/ventas'
+import { AvisoCopiaLocal } from '../componentes/AvisoLocal'
+import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { ConfiguracionPago, MedioPago, Producto, Venta } from '../tipos/dominio'
 
 const ETIQUETA_MEDIO_PAGO: Record<MedioPago, string> = {
@@ -16,6 +18,7 @@ const ETIQUETA_MEDIO_PAGO: Record<MedioPago, string> = {
 export function DetalleSesion() {
   const { mesaId } = useParams<{ mesaId: string }>()
   const navigate = useNavigate()
+  const { enLinea, provisional } = useEstadoLocal()
 
   const [venta, setVenta] = useState<Venta | null>(null)
   const [productos, setProductos] = useState<Producto[]>([])
@@ -41,7 +44,7 @@ export function DetalleSesion() {
         setPagos(pagosObtenidos)
       })
       .catch((err: unknown) => {
-        setError(err instanceof ErrorApi ? err.message : 'No se pudo cargar la sesión.')
+        setError(mensajeErrorApi(err, 'No se pudo cargar la sesión.'))
       })
       .finally(() => setCargando(false))
   }, [mesaId])
@@ -68,7 +71,7 @@ export function DetalleSesion() {
       setVenta(ventas[0] ?? null)
       setCantidad('1')
     } catch (err) {
-      setError(err instanceof ErrorApi ? err.message : 'No se pudo agregar el producto.')
+      setError(mensajeErrorApi(err, 'No se pudo agregar el producto.'))
     } finally {
       setProcesando(false)
     }
@@ -83,7 +86,7 @@ export function DetalleSesion() {
       const ventas = await listarVentas({ mesaId: venta.mesa_id ?? undefined, estado: 'ABIERTA' })
       setVenta(ventas[0] ?? null)
     } catch (err) {
-      setError(err instanceof ErrorApi ? err.message : 'No se pudo quitar el producto.')
+      setError(mensajeErrorApi(err, 'No se pudo quitar el producto.'))
     } finally {
       setProcesando(false)
     }
@@ -100,7 +103,7 @@ export function DetalleSesion() {
       await cerrarVenta(venta.id, medioPago)
       navigate('/ventas')
     } catch (err) {
-      setError(err instanceof ErrorApi ? err.message : 'No se pudo cerrar la sesión.')
+      setError(mensajeErrorApi(err, 'No se pudo cerrar la sesión.'))
     } finally {
       setProcesando(false)
     }
@@ -114,7 +117,7 @@ export function DetalleSesion() {
       await cancelarVenta(venta.id)
       navigate('/ventas')
     } catch (err) {
-      setError(err instanceof ErrorApi ? err.message : 'No se pudo cancelar la sesión.')
+      setError(mensajeErrorApi(err, 'No se pudo cancelar la sesión.'))
       setProcesando(false)
     }
   }
@@ -136,6 +139,17 @@ export function DetalleSesion() {
     )
   }
 
+  // D22: cuando la escritura va a la cola (sin conexión o con cola pendiente) el servidor no
+  // valida el stock al agregar; se advierte, sin bloquear (D24: el conflicto queda para el cierre).
+  const productoElegido = productos.find((producto) => producto.id === productoId)
+  const yaAgregada = venta.detalles
+    .filter((detalle) => detalle.producto_id === productoId)
+    .reduce((suma, detalle) => suma + detalle.cantidad, 0)
+  const superaStockLocal =
+    provisional &&
+    !!productoElegido?.controla_stock &&
+    yaAgregada + Number(cantidad) > productoElegido.stock_actual
+
   return (
     <div className="pagina-detalle-sesion">
       <div className="encabezado-seccion">
@@ -144,6 +158,8 @@ export function DetalleSesion() {
           Volver al mapa de mesas
         </button>
       </div>
+
+      <AvisoCopiaLocal enLinea={enLinea} />
 
       {error && (
         <p className="mensaje-error" role="alert">
@@ -218,6 +234,13 @@ export function DetalleSesion() {
           value={cantidad}
           onChange={(evento) => setCantidad(evento.target.value)}
         />
+
+        {superaStockLocal && (
+          <p className="campo-solo-lectura">
+            La cantidad supera el stock que se ve en este dispositivo; puede generar un conflicto al
+            sincronizar. Puedes agregarla igual.
+          </p>
+        )}
 
         <div className="acciones-formulario">
           <button type="button" disabled={procesando} onClick={() => void manejarAgregar()}>
