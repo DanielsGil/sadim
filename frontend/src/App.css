@@ -1,6 +1,8 @@
 /* Estructura de escritorio con navegación lateral (criterio de diseño de los
-   wireframes). Se mantiene responsive: en pantallas angostas la barra
-   lateral pasa a ser una franja superior. */
+   wireframes). En pantallas <768px la barra lateral se oculta y se reemplaza
+   por una barra de navegación inferior fija con hoja "Más" (E-01, lote de
+   correcciones 1) — nunca una franja superior angosta, que es lo que
+   desbordaba horizontalmente antes de este cambio. */
 
 .app-shell {
   display: flex;
@@ -84,29 +86,165 @@
   background: var(--accent-bg);
 }
 
-@media (max-width: 720px) {
+/* Barra de navegación inferior (móvil, <768px) — oculta en escritorio. */
+.barra-inferior {
+  display: none;
+}
+
+.fondo-hoja {
+  display: none;
+}
+
+@media (max-width: 767px) {
   .app-shell {
     flex-direction: column;
   }
 
   .barra-lateral {
-    width: auto;
-    flex-direction: row;
+    display: none;
+  }
+
+  .contenido-principal {
+    padding: 16px 16px calc(16px + 64px + env(safe-area-inset-bottom));
+    /* El overflow-x del contenido nunca debe arrastrar la página entera:
+       las tablas/listas anchas ya se desplazan dentro de sí mismas
+       (.tabla-productos tiene su propio overflow-x). */
+    overflow-x: hidden;
+  }
+
+  .barra-inferior {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    min-height: 60px;
+    justify-content: space-around;
+    align-items: stretch;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .item-barra-inferior {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
     align-items: center;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
+    justify-content: center;
+    gap: 2px;
+    padding: 8px 4px 6px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--text);
+    text-decoration: none;
+    background: none;
+    border: none;
+    cursor: pointer;
   }
 
-  .navegacion-lateral {
-    flex-direction: row;
+  .item-barra-inferior.active {
+    color: var(--accent);
+    font-weight: 600;
   }
 
-  .barra-lateral-pie {
-    flex-direction: row;
-    border-top: none;
-    padding-top: 0;
-    margin-left: auto;
+  .icono-barra-inferior {
+    font-size: 20px;
+    line-height: 1;
   }
+
+  .fondo-hoja {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 30;
+  }
+
+  .hoja-mas {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: 70svh;
+    overflow-y: auto;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    border-radius: 16px 16px 0 0;
+    padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
+    box-sizing: border-box;
+  }
+
+  .hoja-mas-agarradera {
+    width: 40px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--border);
+    margin: 4px auto 12px;
+  }
+
+  .lista-hoja-mas {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .lista-hoja-mas a {
+    padding: 12px;
+    border-radius: 8px;
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  .lista-hoja-mas a.active {
+    background: var(--accent-bg);
+    color: var(--text-h);
+    font-weight: 600;
+  }
+
+  .hoja-mas-pie {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 12px;
+    margin-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+}
+
+/* Inicio */
+
+.pagina-inicio {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 100%;
+}
+
+.accesos-rapidos-inicio {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.acceso-rapido-inicio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-h);
+  text-decoration: none;
+}
+
+.acceso-rapido-inicio:hover {
+  background: var(--accent-bg);
+}
+
+.acceso-rapido-inicio span {
+  font-size: 20px;
 }
 
 /* Login */
