@@ -2,6 +2,7 @@ import threading
 import uuid
 from datetime import timedelta
 from decimal import Decimal
+from unittest import mock
 
 from django.db import connection
 from django.test import TestCase, TransactionTestCase
@@ -361,6 +362,24 @@ class CierreTests(FinanzasAPITestCase):
         self.assertEqual(response.status_code, 201)
         movimiento.refresh_from_db()
         self.assertEqual(str(movimiento.cierre_caja_id), response.data['id'])
+
+    def test_periodo_inicio_igual_a_periodo_fin_no_rompe_el_cierre(self):
+        # Bug real: dos timezone.now() muy seguidos (uno al crear el
+        # movimiento, otro al calcular periodo_fin dentro de crear_cierre)
+        # podían coincidir al microsegundo si el reloj del sistema operativo
+        # no alcanzaba a avanzar entre una llamada y otra (más notorio en
+        # Windows), violando el CHECK cierrecaja_periodo_fin_mayor y
+        # reportando 409 CIERRE_YA_REALIZADO en vez de crear el cierre.
+        venta, movimiento = self._crear_venta_confirmada(valor=Decimal('10000.00'), medio_pago='EFECTIVO')
+
+        with mock.patch('finanzas.services.timezone.now', return_value=movimiento.fecha):
+            response = self.c_admin.post('/api/cierres-caja/', {
+                'operation_id': str(uuid.uuid4()), 'fecha': timezone.localdate().isoformat(),
+                'efectivo_contado': '10000.00',
+            }, format='json')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertLess(response.data['periodo_inicio'], response.data['periodo_fin'])
 
     def test_operador_no_puede_cerrar_caja(self):
         response = self.c_operador.post('/api/cierres-caja/', {

@@ -203,9 +203,17 @@ def crear_cierre(*, usuario, operation_id, fecha, efectivo_contado, observacione
         periodo_inicio = ultimo_cierre.periodo_fin
     else:
         primero = MovimientoCaja.objects.order_by('fecha').first()
-        # Sin cierres ni movimientos previos: periodo_inicio debe ser
-        # estrictamente anterior a periodo_fin (CHECK cierrecaja_periodo_fin_mayor).
-        periodo_inicio = primero.fecha if primero else periodo_fin - timedelta(microseconds=1)
+        periodo_inicio = primero.fecha if primero else None
+
+    # CHECK cierrecaja_periodo_fin_mayor exige periodo_fin > periodo_inicio.
+    # Dos timezone.now() muy seguidos (crear el movimiento y, justo después,
+    # calcular periodo_fin aquí) pueden coincidir al microsegundo si el reloj
+    # del sistema operativo no alcanza a avanzar entre una llamada y otra
+    # (más notorio en Windows) — sin esta guarda, esa coincidencia hacía
+    # fallar el INSERT con el CHECK, y el except de abajo lo reportaba mal
+    # como CIERRE_YA_REALIZADO.
+    if periodo_inicio is None or periodo_inicio >= periodo_fin:
+        periodo_inicio = periodo_fin - timedelta(microseconds=1)
 
     movimientos = list(
         MovimientoCaja.objects.select_for_update().filter(
@@ -259,7 +267,13 @@ def crear_cierre(*, usuario, operation_id, fecha, efectivo_contado, observacione
                 diferencia=diferencia,
                 observaciones=observaciones,
             )
-    except IntegrityError:
+    except IntegrityError as exc:
+        constraint = getattr(getattr(exc.__cause__, 'diag', None), 'constraint_name', None)
+        if constraint == 'cierrecaja_periodo_fin_mayor':
+            # La guarda de arriba debería impedir esto siempre; si de todos
+            # modos ocurre, es un bug real y no un cierre duplicado — no lo
+            # disfracemos de CIERRE_YA_REALIZADO.
+            raise
         # R-25 / ERD §5.16: fecha es UNIQUE — a lo sumo un cierre por día.
         raise ErrorNegocio(
             code='CIERRE_YA_REALIZADO',

@@ -2,51 +2,26 @@
 
 PWA offline-first para micro-comercios y negocios de servicios (ventas de mostrador, sesiones dinámicas de mesa, órdenes de trabajo, inventario y caja). Proyecto de grado — Ingeniería de Sistemas y Computación, Universidad Antonio Nariño. Caso de validación: cafetería Aroma & Co. (Chapinero, Bogotá).
 
-La documentación de arquitectura, modelo de datos, casos de uso y contrato de API vive en `docs/referencia/`. Ese es el origen de verdad; este README solo explica cómo levantar el entorno de desarrollo en Windows.
+La documentación de arquitectura, modelo de datos, casos de uso y contrato de API vive en `docs/referencia/`. Ese es el origen de verdad; este README solo explica cómo levantar el entorno de desarrollo en Windows desde cero.
 
-## Requisitos previos
+## Requisitos (versiones verificadas en este entorno)
 
-- Python 3.13+ (el `venv/` del repositorio ya está creado en la raíz).
-- PostgreSQL 18 instalado y corriendo como servicio de Windows (`postgresql-x64-18`), escuchando en `localhost:5432`.
-- Node.js y npm (para el frontend, ver `frontend/README.md`).
+- Python 3.12 (`venv/` del repositorio ya está creado en la raíz).
+- Node.js 22 y npm 10 (para el frontend).
+- PostgreSQL 18, instalado y corriendo como servicio de Windows (`postgresql-x64-18`), escuchando en `localhost:5432`.
 
-## 1. Activar el entorno virtual
+## 1. Activar el entorno virtual e instalar dependencias del backend
 
 Desde la raíz del repositorio, en PowerShell o Git Bash:
 
 ```
 venv\Scripts\activate
-```
-
-## 2. Instalar dependencias del backend
-
-```
 pip install -r requirements.txt
 ```
 
-`requirements.txt` solo lista las dependencias directas: Django, Django REST Framework, djangorestframework-simplejwt, psycopg2-binary y python-dotenv.
+`requirements.txt` lista solo las dependencias directas: Django, Django REST Framework, djangorestframework-simplejwt, psycopg2-binary, python-dotenv, y (para despliegue, Bloque 6a) dj-database-url, gunicorn y whitenoise.
 
-## 3. Configurar variables de entorno
-
-Copia `.env.example` a `.env` en la raíz del repositorio y completa los valores reales (nunca se commitea: está en `.gitignore`):
-
-```
-copy .env.example .env
-```
-
-Variables que lee `backend/core/settings.py` mediante `python-dotenv`:
-
-| Variable | Uso |
-|---|---|
-| `SECRET_KEY` | Clave secreta de Django. Genera una propia para tu entorno. |
-| `DEBUG` | `True` en desarrollo, `False` en producción. |
-| `DB_NAME` | Nombre de la base de datos PostgreSQL (por defecto `sadim_db`). |
-| `DB_USER` | Rol de PostgreSQL con permisos sobre esa base (por defecto `sadim`). |
-| `DB_PASSWORD` | Contraseña del rol anterior. |
-| `DB_HOST` | Host de PostgreSQL (por defecto `localhost`). |
-| `DB_PORT` | Puerto de PostgreSQL (por defecto `5432`). |
-
-## 4. Preparar la base de datos
+## 2. Base de datos y variables de entorno
 
 Si el rol y la base de datos todavía no existen, créalos una vez desde `psql` (requiere la contraseña del superusuario `postgres`):
 
@@ -55,80 +30,72 @@ CREATE ROLE sadim WITH LOGIN PASSWORD 'tu-contraseña' CREATEDB;
 CREATE DATABASE sadim_db OWNER sadim;
 ```
 
-`CREATEDB` es necesario para que el mismo rol pueda crear la base de datos temporal de pruebas cuando ejecutes `manage.py test`.
+`CREATEDB` es necesario para que ese mismo rol pueda crear la base de datos temporal de pruebas.
 
-## 5. Aplicar migraciones
+Copia `.env.example` a `.env` en la raíz y completa tus propios valores (nunca se commitea, está en `.gitignore`):
+
+```
+copy .env.example .env
+```
+
+`backend/core/settings.py` lee, vía `python-dotenv`: `SECRET_KEY`, `DEBUG`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`. Para desarrollo local basta con eso — las variables de producción (`DATABASE_URL`, `ALLOWED_HOSTS`, etc., Bloque 6a) solo aplican al desplegar en Render y no hacen falta aquí.
+
+## 3. Migraciones
 
 ```
 python backend/manage.py migrate
 ```
 
-## 6. Crear el primer usuario Administrador
+## 4. Crear el primer usuario Administrador
 
-SADIM no tiene un `createsuperuser` de uso normal: el primer ADMIN se crea vía API, y ese endpoint se bloquea automáticamente en cuanto existe algún usuario (Contrato §3). Con el servidor corriendo (`python backend/manage.py runserver`):
+SADIM no usa `createsuperuser`: el primer ADMIN se crea vía API, y ese endpoint se bloquea automáticamente en cuanto existe algún usuario (Contrato §3). Con el servidor corriendo (paso 5):
 
 ```
 curl -X POST http://localhost:8000/api/auth/register/ ^
   -H "Content-Type: application/json" ^
-  -d "{\"nombre_completo\": \"Nombre Apellido\", \"username\": \"admin\", \"password\": \"una-contraseña-segura\"}"
+  -d "{\"nombre_completo\": \"Ana Torres\", \"username\": \"admin.aroma\", \"password\": \"una-contraseña-segura\"}"
 ```
 
-Respuesta esperada (201): `{"usuario_id": "...", "rol": "ADMIN"}`. Un segundo intento de registro responde `409 INSTALACION_YA_INICIALIZADA`: los usuarios siguientes se crean con `/api/usuarios/` autenticado como ADMIN.
+Respuesta esperada (201): `{"usuario_id": "...", "rol": "ADMIN"}`. Ese registro también crea, en la misma transacción, la configuración de módulos y de medios de pago (D9). Un segundo intento responde `409 INSTALACION_YA_INICIALIZADA`; los usuarios siguientes (OPERADOR) se crean autenticado como ADMIN con `/api/usuarios/`.
 
-## 7. Ejecutar las pruebas
+## 5. Levantar backend y frontend
 
-Desde la raíz del repo (nombrando las apps):
-
-```
-python backend/manage.py test usuarios inventario
-```
-
-O, sin nombrar apps, parados dentro de `backend/`:
+Backend (puerto 8000):
 
 ```
-cd backend
-python manage.py test
-cd ..
+python backend/manage.py runserver
 ```
 
-Las pruebas corren contra PostgreSQL: Django crea y destruye automáticamente una base de datos temporal (`test_sadim_db`) usando el mismo rol de `.env`, por lo que ese rol necesita el permiso `CREATEDB` del paso 4.
+Frontend (puerto 5173), en otra terminal:
 
-**Importante:** `python backend/manage.py test` sin argumentos, ejecutado desde la raíz del repo, reporta `Ran 0 tests`. La causa es que Django descubre pruebas a partir del directorio de trabajo actual (`.`), no de `BASE_DIR`: como el comando se lanza desde la raíz pero `manage.py` vive en `backend/`, la búsqueda automática no encuentra nada. Hay dos formas de evitarlo, ambas verificadas en este repo (30 pruebas descubiertas en los dos casos):
-- Nombrar las apps explícitamente (`test usuarios inventario`, y las que se agreguen en Sprint 3): se resuelven contra `INSTALLED_APPS`, no contra el sistema de archivos, así que funciona sin importar el directorio de trabajo.
-- Ejecutar el comando parado dentro de `backend/` (`cd backend && python manage.py test`): ahí el directorio de trabajo coincide con `BASE_DIR` y la búsqueda automática sí encuentra `usuarios/tests.py` e `inventario/tests.py`.
+```
+cd frontend
+npm install
+npm run dev
+```
 
-## Comandos útiles
+El proxy de Vite (`vite.config.ts`) redirige `/api/*` a `http://localhost:8000`, así que el backend no necesita CORS. La sesión (`access_token`, `refresh_token`, `usuario_id`, `rol`) se guarda con Dexie en IndexedDB, nunca en `localStorage`.
 
-| Comando | Qué hace |
-|---|---|
-| `python backend/manage.py check` | Verifica el proyecto sin tocar la base de datos. |
-| `python backend/manage.py showmigrations` | Muestra el estado de las migraciones. |
-| `python backend/manage.py makemigrations --check --dry-run` | Indica si faltan migraciones, sin crearlas. |
+## 6. Ejecutar las pruebas
 
-## Frontend
+Backend, desde la raíz (nombrando las apps) o parado dentro de `backend/`:
 
-PWA con Vite + React + TypeScript. Todavía sin Service Worker (HU-033, Sprint 4) ni funcionalidad de Sprint 3 (ventas, mesas, órdenes de trabajo): por ahora solo inicio de sesión y catálogo (HU-008, HU-011).
+```
+python backend/manage.py test usuarios inventario core ventas finanzas servicios
+```
+```
+cd backend && python manage.py test
+```
 
-1. Instalar dependencias (una sola vez):
-   ```
-   cd frontend
-   npm install
-   ```
+Ambas formas están verificadas. **Ojo:** `python backend/manage.py test` sin argumentos, ejecutado desde la raíz, reporta `Ran 0 tests` — Django descubre pruebas a partir del directorio de trabajo actual, no de `BASE_DIR`, y `manage.py` vive en `backend/`. Usa una de las dos formas de arriba.
 
-2. Con el backend corriendo (`python backend/manage.py runserver`, puerto 8000 — ver arriba), levantar el servidor de desarrollo del frontend:
-   ```
-   npm run dev
-   ```
-   Abre `http://localhost:5173`. El proxy de Vite (`vite.config.ts`) redirige `/api/*` a `http://localhost:8000`, así que el backend no necesita configurar CORS.
+Las pruebas corren contra PostgreSQL: Django crea y destruye una base de datos temporal (`test_sadim_db`) con el mismo rol de `.env` (necesita `CREATEDB`, paso 2).
 
-3. Para entrar necesitas un usuario. Si la instalación todavía no tiene ninguno, créalo con `/api/auth/register/` (paso 6 de la sección Backend); ese primer usuario siempre es ADMIN. Los operadores se crean después con `/api/usuarios/` (Sprint 3, HU-044) — por ahora, para tener un OPERADOR de prueba, créalo desde `python backend/manage.py shell` con `Usuario.objects.create_user(...)`.
+Frontend (Vitest, solo el módulo de cola/sincronización offline):
 
-4. La sesión (`access_token`, `refresh_token`, `usuario_id`, `rol`) se guarda con Dexie en IndexedDB (almacén `meta`, ERD §10), nunca en `localStorage`. "Cerrar sesión" en la barra lateral la borra.
+```
+cd frontend
+npm test
+```
 
-5. Otros comandos, desde `frontend/`:
-
-   | Comando | Qué hace |
-   |---|---|
-   | `npm run build` | Compila TypeScript (`tsc -b`) y genera la build de producción con Vite. |
-   | `npx tsc --noEmit` | Solo revisa tipos, sin compilar. |
-   | `npm run lint` | Corre Oxlint. |
+Otros comandos útiles del frontend: `npm run build` (compila y genera la build de producción, incluye manifest y service worker de la PWA), `npx tsc -b` (chequeo de tipos) y `npm run lint`.
