@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { listarMesas } from '../api/mesas'
 import { ErrorApi } from '../api/errorApi'
-import { abrirSesion, listarVentas } from '../api/ventas'
+import { listarVentas } from '../api/ventas'
 import { FormularioVentaRapida } from '../componentes/FormularioVentaRapida'
 import type { Mesa, Venta } from '../tipos/dominio'
 
@@ -14,7 +14,6 @@ export function Ventas() {
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [mostrarVentaRapida, setMostrarVentaRapida] = useState(false)
-  const [abriendoMesaId, setAbriendoMesaId] = useState<string | null>(null)
 
   function recargar() {
     setCargando(true)
@@ -32,22 +31,11 @@ export function Ventas() {
 
   useEffect(recargar, [])
 
-  async function manejarClicMesa(mesa: Mesa) {
-    if (mesa.estado === 'OCUPADA') {
-      navigate(`/ventas/mesas/${mesa.id}`)
-      return
-    }
-    setError(null)
-    setAbriendoMesaId(mesa.id)
-    try {
-      await abrirSesion(mesa.id)
-      navigate(`/ventas/mesas/${mesa.id}`)
-    } catch (err) {
-      setError(err instanceof ErrorApi ? err.message : 'No se pudo abrir la sesión.')
-      recargar()
-    } finally {
-      setAbriendoMesaId(null)
-    }
+  // D26 (E-09, Lote de correcciones 3): tocar una mesa libre solo abre la
+  // pantalla de sesión en este dispositivo — no envía nada al servidor
+  // todavía. La sesión se crea al agregar el primer producto (DetalleSesion).
+  function manejarClicMesa(mesa: Mesa) {
+    navigate(`/ventas/mesas/${mesa.id}`)
   }
 
   return (
@@ -86,8 +74,7 @@ export function Ventas() {
                 key={mesa.id}
                 type="button"
                 className={`tarjeta-mesa ${mesa.estado === 'OCUPADA' ? 'tarjeta-mesa-ocupada' : 'tarjeta-mesa-disponible'}`}
-                onClick={() => void manejarClicMesa(mesa)}
-                disabled={abriendoMesaId === mesa.id}
+                onClick={() => manejarClicMesa(mesa)}
               >
                 <span className="tarjeta-mesa-numero">Mesa {mesa.numero}</span>
                 <span>{mesa.estado === 'OCUPADA' ? 'Ocupada' : 'Disponible'}</span>

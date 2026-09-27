@@ -335,6 +335,14 @@
   font-size: 14px;
 }
 
+/* E-06: detalle de error por campo (Contrato §14 `details`), justo debajo
+   de la casilla correspondiente — más discreto que el error general. */
+.mensaje-error-campo {
+  color: #c0392b;
+  font-size: 13px;
+  margin: -4px 0 4px;
+}
+
 .cargando {
   padding: 24px;
 }
@@ -527,6 +535,30 @@
   cursor: not-allowed;
 }
 
+/* E-08: contador de cantidad "−/número/+", sin escritura manual de decimales. */
+.contador-cantidad {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.contador-cantidad button {
+  width: 40px;
+  height: 40px;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0;
+}
+
+.contador-cantidad-valor {
+  min-width: 2.5ch;
+  text-align: center;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--text-h);
+}
+
 /* Ventas — mapa de mesas */
 
 .cuadricula-mesas {
@@ -563,4 +595,90 @@
 
 .tarjeta-mesa-ocupada {
   background: rgba(231, 76, 60, 0.1);
+}
+
+/* E-07: selector de productos por categorías + tarjetas, compartido entre
+   la venta rápida y el detalle de sesión. Colores derivados del id de la
+   categoría (SelectorProductos.tsx), nunca de un campo nuevo del modelo. */
+.selector-productos {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.selector-productos-buscador {
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.selector-productos-categorias {
+  margin: 0;
+}
+
+.chip-categoria {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  color: #1a1a1a;
+  cursor: pointer;
+}
+
+.chip-categoria-activa {
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.cuadricula-selector-productos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.tarjeta-producto-selector {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  min-height: 64px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  color: #1a1a1a;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.tarjeta-producto-nombre {
+  font-weight: 600;
+  font-size: 14px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.tarjeta-producto-precio {
+  font-size: 13px;
+}
+
+.tarjeta-producto-stock {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+/* El selector de productos necesita más ancho que un formulario angosto
+   común para que quepan varias tarjetas por fila en escritorio. */
+.formulario-venta-rapida,
+.panel-selector-productos {
+  max-width: 640px;
 }

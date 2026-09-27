@@ -2,6 +2,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -9,6 +10,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from core.exceptions import ErrorNegocio
 
 from .models import Usuario
+
+MENSAJE_USUARIO_DUPLICADO = 'Ya existe un usuario con ese nombre de usuario.'
 
 MENSAJE_CREDENCIALES_INVALIDAS = 'El usuario o la contraseña no son correctos.'
 
@@ -72,6 +75,10 @@ class UsuarioCrearSerializer(serializers.ModelSerializer):
     existe en este serializer.
     """
 
+    username = serializers.CharField(
+        max_length=50,
+        validators=[UniqueValidator(queryset=Usuario.objects.all(), message=MENSAJE_USUARIO_DUPLICADO)],
+    )
     password = serializers.CharField(write_only=True, trim_whitespace=False)
 
     class Meta:

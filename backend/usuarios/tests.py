@@ -280,4 +280,10 @@ class UsuarioViewSetTests(TestCase):
         self.assertEqual(response.status_code, 400)
         assert_error_shape(self, response)
         self.assertEqual(response.data['code'], 'DATOS_INVALIDOS')
+        # E-06 (Lote de correcciones 3): el detalle por campo debe traer un
+        # mensaje concreto para que el frontend lo muestre bajo la casilla.
+        self.assertEqual(
+            response.data['details']['username'][0],
+            'Ya existe un usuario con ese nombre de usuario.',
+        )
         self.assertIn('username', response.data['details'])

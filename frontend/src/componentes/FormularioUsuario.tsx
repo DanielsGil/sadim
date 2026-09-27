@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { crearUsuario, editarUsuario } from '../api/usuarios'
 import { ErrorApi } from '../api/errorApi'
+import { erroresPorCampo } from '../api/erroresPorCampo'
 import type { Usuario } from '../tipos/dominio'
 
 interface Props {
@@ -20,11 +21,13 @@ export function FormularioUsuario({ usuarioInicial, onGuardado, onCancelar }: Pr
   const [username, setUsername] = useState(usuarioInicial?.username ?? '')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [erroresCampo, setErroresCampo] = useState<Record<string, string>>({})
   const [guardando, setGuardando] = useState(false)
 
   async function manejarEnvio(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
     setError(null)
+    setErroresCampo({})
     setGuardando(true)
     try {
       const usuario = usuarioInicial
@@ -35,6 +38,7 @@ export function FormularioUsuario({ usuarioInicial, onGuardado, onCancelar }: Pr
         : await crearUsuario({ nombre_completo: nombreCompleto, username, password })
       onGuardado(usuario)
     } catch (err) {
+      setErroresCampo(erroresPorCampo(err))
       setError(err instanceof ErrorApi ? err.message : 'No se pudo guardar el usuario.')
     } finally {
       setGuardando(false)
@@ -52,6 +56,9 @@ export function FormularioUsuario({ usuarioInicial, onGuardado, onCancelar }: Pr
         onChange={(evento) => setNombreCompleto(evento.target.value)}
         required
       />
+      {erroresCampo.nombre_completo && (
+        <p className="mensaje-error-campo">{erroresCampo.nombre_completo}</p>
+      )}
 
       <label htmlFor="usuario-username">Usuario</label>
       <input
@@ -61,6 +68,7 @@ export function FormularioUsuario({ usuarioInicial, onGuardado, onCancelar }: Pr
         disabled={Boolean(usuarioInicial)}
         required
       />
+      {erroresCampo.username && <p className="mensaje-error-campo">{erroresCampo.username}</p>}
 
       <label htmlFor="usuario-password">
         {usuarioInicial ? 'Nueva contraseña (dejar en blanco para no cambiarla)' : 'Contraseña'}
@@ -72,6 +80,7 @@ export function FormularioUsuario({ usuarioInicial, onGuardado, onCancelar }: Pr
         onChange={(evento) => setPassword(evento.target.value)}
         required={!usuarioInicial}
       />
+      {erroresCampo.password && <p className="mensaje-error-campo">{erroresCampo.password}</p>}
 
       {error && (
         <p className="mensaje-error" role="alert">

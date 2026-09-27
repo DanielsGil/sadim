@@ -1,16 +1,19 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { listarProductos } from '../api/catalogo'
+import { erroresPorCampo } from '../api/erroresPorCampo'
 import { mensajeErrorApi } from '../api/errorApi'
 import { registrarEntrada } from '../api/inventarioMovimientos'
+import { ContadorCantidad } from '../componentes/ContadorCantidad'
 import type { Producto } from '../tipos/dominio'
 
 /** Ingreso de mercancía (CU-12, HU-025 adelantado) — ADMIN y OPERADOR. */
 export function IngresoMercancia() {
   const [productos, setProductos] = useState<Producto[]>([])
   const [productoId, setProductoId] = useState('')
-  const [cantidad, setCantidad] = useState('')
+  const [cantidad, setCantidad] = useState(1)
   const [motivo, setMotivo] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [erroresCampo, setErroresCampo] = useState<Record<string, string>>({})
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [guardando, setGuardando] = useState(false)
 
@@ -25,6 +28,7 @@ export function IngresoMercancia() {
   async function manejarEnvio(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
     setError(null)
+    setErroresCampo({})
     setMensaje(null)
     if (!productoId) {
       setError('Selecciona un producto.')
@@ -32,11 +36,12 @@ export function IngresoMercancia() {
     }
     setGuardando(true)
     try {
-      const movimiento = await registrarEntrada(productoId, Number(cantidad), motivo)
+      const movimiento = await registrarEntrada(productoId, cantidad, motivo)
       setMensaje(`Ingreso registrado: +${movimiento.cantidad} unidades.`)
-      setCantidad('')
+      setCantidad(1)
       setMotivo('')
     } catch (err) {
+      setErroresCampo(erroresPorCampo(err))
       setError(mensajeErrorApi(err, 'No se pudo registrar el ingreso.'))
     } finally {
       setGuardando(false)
@@ -68,15 +73,8 @@ export function IngresoMercancia() {
           </select>
 
           <label htmlFor="ingreso-cantidad">Cantidad</label>
-          <input
-            id="ingreso-cantidad"
-            type="number"
-            min="0.01"
-            step="0.01"
-            value={cantidad}
-            onChange={(evento) => setCantidad(evento.target.value)}
-            required
-          />
+          <ContadorCantidad id="ingreso-cantidad" valor={cantidad} onCambiar={setCantidad} />
+          {erroresCampo.cantidad && <p className="mensaje-error-campo">{erroresCampo.cantidad}</p>}
 
           <label htmlFor="ingreso-motivo">Motivo (opcional)</label>
           <input
@@ -85,6 +83,7 @@ export function IngresoMercancia() {
             onChange={(evento) => setMotivo(evento.target.value)}
             placeholder="Compra de mercancía…"
           />
+          {erroresCampo.motivo && <p className="mensaje-error-campo">{erroresCampo.motivo}</p>}
 
           {mensaje && <p className="campo-solo-lectura">{mensaje}</p>}
           {error && (

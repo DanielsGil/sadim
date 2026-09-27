@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { listarProductos } from '../api/catalogo'
 import { obtenerConfiguracionPagos } from '../api/configuracion'
+import { erroresPorCampo } from '../api/erroresPorCampo'
 import { mensajeErrorApi } from '../api/errorApi'
 import {
   cambiarEstadoOrden,
@@ -13,6 +14,7 @@ import {
   registrarCosto,
 } from '../api/ordenesTrabajo'
 import { AvisoCopiaLocal, EtiquetaProvisional } from '../componentes/AvisoLocal'
+import { ContadorCantidad } from '../componentes/ContadorCantidad'
 import { useSesion } from '../contexto/SesionContext'
 import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type {
@@ -71,10 +73,13 @@ export function DetalleOrden() {
 
   const [valorAbono, setValorAbono] = useState('')
   const [medioPagoAbono, setMedioPagoAbono] = useState<MedioPago | ''>('')
+  const [erroresAbono, setErroresAbono] = useState<Record<string, string>>({})
   const [productoConsumoId, setProductoConsumoId] = useState('')
-  const [cantidadConsumo, setCantidadConsumo] = useState('1')
+  const [cantidadConsumo, setCantidadConsumo] = useState(1)
+  const [erroresConsumo, setErroresConsumo] = useState<Record<string, string>>({})
   const [conceptoCosto, setConceptoCosto] = useState('')
   const [valorCosto, setValorCosto] = useState('')
+  const [erroresCosto, setErroresCosto] = useState<Record<string, string>>({})
 
   function recargar() {
     if (!ordenId) return
@@ -139,6 +144,7 @@ export function DetalleOrden() {
   async function manejarAbono() {
     if (!orden || !medioPagoAbono || !valorAbono) return
     setError(null)
+    setErroresAbono({})
     setProcesando(true)
     try {
       await registrarAbono(orden.id, Number(valorAbono), medioPagoAbono)
@@ -146,6 +152,7 @@ export function DetalleOrden() {
       setMedioPagoAbono('')
       recargar()
     } catch (err) {
+      setErroresAbono(erroresPorCampo(err))
       setError(mensajeErrorApi(err, 'No se pudo registrar el abono.'))
     } finally {
       setProcesando(false)
@@ -155,12 +162,14 @@ export function DetalleOrden() {
   async function manejarConsumo() {
     if (!orden || !productoConsumoId) return
     setError(null)
+    setErroresConsumo({})
     setProcesando(true)
     try {
-      await registrarConsumo(orden.id, productoConsumoId, Number(cantidadConsumo))
-      setCantidadConsumo('1')
+      await registrarConsumo(orden.id, productoConsumoId, cantidadConsumo)
+      setCantidadConsumo(1)
       recargar()
     } catch (err) {
+      setErroresConsumo(erroresPorCampo(err))
       setError(mensajeErrorApi(err, 'No se pudo registrar el consumo.'))
     } finally {
       setProcesando(false)
@@ -170,6 +179,7 @@ export function DetalleOrden() {
   async function manejarCosto() {
     if (!orden || !conceptoCosto || !valorCosto) return
     setError(null)
+    setErroresCosto({})
     setProcesando(true)
     try {
       await registrarCosto(orden.id, conceptoCosto, Number(valorCosto))
@@ -177,6 +187,7 @@ export function DetalleOrden() {
       setValorCosto('')
       recargar()
     } catch (err) {
+      setErroresCosto(erroresPorCampo(err))
       setError(mensajeErrorApi(err, 'No se pudo registrar el costo.'))
     } finally {
       setProcesando(false)
@@ -291,6 +302,7 @@ export function DetalleOrden() {
           value={valorAbono}
           onChange={(evento) => setValorAbono(evento.target.value)}
         />
+        {erroresAbono.valor && <p className="mensaje-error-campo">{erroresAbono.valor}</p>}
         <label htmlFor="orden-abono-medio">Medio de pago</label>
         <select
           id="orden-abono-medio"
@@ -302,6 +314,7 @@ export function DetalleOrden() {
             <option key={medio} value={medio}>{ETIQUETA_MEDIO_PAGO[medio]}</option>
           ))}
         </select>
+        {erroresAbono.medio_pago && <p className="mensaje-error-campo">{erroresAbono.medio_pago}</p>}
         {provisional && Number(valorAbono) > orden.saldo_pendiente && (
           <p className="campo-solo-lectura">
             El valor supera el saldo pendiente que se ve aquí; puede generar un conflicto al sincronizar.
@@ -359,15 +372,14 @@ export function DetalleOrden() {
                 <option key={producto.id} value={producto.id}>{producto.nombre}</option>
               ))}
             </select>
+            {erroresConsumo.producto_id && (
+              <p className="mensaje-error-campo">{erroresConsumo.producto_id}</p>
+            )}
             <label htmlFor="orden-consumo-cantidad">Cantidad</label>
-            <input
-              id="orden-consumo-cantidad"
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={cantidadConsumo}
-              onChange={(evento) => setCantidadConsumo(evento.target.value)}
-            />
+            <ContadorCantidad id="orden-consumo-cantidad" valor={cantidadConsumo} onCambiar={setCantidadConsumo} />
+            {erroresConsumo.cantidad && (
+              <p className="mensaje-error-campo">{erroresConsumo.cantidad}</p>
+            )}
             <div className="acciones-formulario">
               <button type="button" disabled={procesando} onClick={() => void manejarConsumo()}>
                 Registrar consumo
@@ -414,6 +426,9 @@ export function DetalleOrden() {
                 value={conceptoCosto}
                 onChange={(evento) => setConceptoCosto(evento.target.value)}
               />
+              {erroresCosto.concepto && (
+                <p className="mensaje-error-campo">{erroresCosto.concepto}</p>
+              )}
               <label htmlFor="orden-costo-valor">Valor</label>
               <input
                 id="orden-costo-valor"
@@ -423,6 +438,7 @@ export function DetalleOrden() {
                 value={valorCosto}
                 onChange={(evento) => setValorCosto(evento.target.value)}
               />
+              {erroresCosto.valor && <p className="mensaje-error-campo">{erroresCosto.valor}</p>}
               <div className="acciones-formulario">
                 <button type="button" disabled={procesando} onClick={() => void manejarCosto()}>
                   Registrar costo

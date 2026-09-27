@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { crearOrden } from '../api/ordenesTrabajo'
 import { ErrorApi } from '../api/errorApi'
+import { erroresPorCampo } from '../api/erroresPorCampo'
 import type { OrdenTrabajo } from '../tipos/dominio'
 
 interface Props {
@@ -16,11 +17,13 @@ export function FormularioOrden({ onGuardado, onCancelar }: Props) {
   const [fechaEntrega, setFechaEntrega] = useState('')
   const [costoTotal, setCostoTotal] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [erroresCampo, setErroresCampo] = useState<Record<string, string>>({})
   const [guardando, setGuardando] = useState(false)
 
   async function manejarEnvio(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
     setError(null)
+    setErroresCampo({})
     setGuardando(true)
     try {
       const orden = await crearOrden({
@@ -32,6 +35,7 @@ export function FormularioOrden({ onGuardado, onCancelar }: Props) {
       })
       onGuardado(orden)
     } catch (err) {
+      setErroresCampo(erroresPorCampo(err))
       setError(err instanceof ErrorApi ? err.message : 'No se pudo registrar el pedido.')
     } finally {
       setGuardando(false)
@@ -49,6 +53,9 @@ export function FormularioOrden({ onGuardado, onCancelar }: Props) {
         onChange={(evento) => setClienteNombre(evento.target.value)}
         required
       />
+      {erroresCampo.cliente_nombre && (
+        <p className="mensaje-error-campo">{erroresCampo.cliente_nombre}</p>
+      )}
 
       <label htmlFor="orden-cliente-telefono">Teléfono (opcional)</label>
       <input
@@ -56,6 +63,9 @@ export function FormularioOrden({ onGuardado, onCancelar }: Props) {
         value={clienteTelefono}
         onChange={(evento) => setClienteTelefono(evento.target.value)}
       />
+      {erroresCampo.cliente_telefono && (
+        <p className="mensaje-error-campo">{erroresCampo.cliente_telefono}</p>
+      )}
 
       <label htmlFor="orden-descripcion">Descripción del encargo</label>
       <textarea
@@ -64,6 +74,9 @@ export function FormularioOrden({ onGuardado, onCancelar }: Props) {
         onChange={(evento) => setDescripcion(evento.target.value)}
         required
       />
+      {erroresCampo.descripcion && (
+        <p className="mensaje-error-campo">{erroresCampo.descripcion}</p>
+      )}
 
       <label htmlFor="orden-fecha-entrega">Fecha de entrega estimada</label>
       <input
@@ -73,6 +86,9 @@ export function FormularioOrden({ onGuardado, onCancelar }: Props) {
         onChange={(evento) => setFechaEntrega(evento.target.value)}
         required
       />
+      {erroresCampo.fecha_entrega_estimada && (
+        <p className="mensaje-error-campo">{erroresCampo.fecha_entrega_estimada}</p>
+      )}
 
       <label htmlFor="orden-costo-total">Costo total acordado</label>
       <input
@@ -84,6 +100,9 @@ export function FormularioOrden({ onGuardado, onCancelar }: Props) {
         onChange={(evento) => setCostoTotal(evento.target.value)}
         required
       />
+      {erroresCampo.costo_total && (
+        <p className="mensaje-error-campo">{erroresCampo.costo_total}</p>
+      )}
 
       {error && (
         <p className="mensaje-error" role="alert">

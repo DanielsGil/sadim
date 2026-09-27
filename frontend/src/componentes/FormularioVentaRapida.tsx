@@ -1,9 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { listarProductos } from '../api/catalogo'
+import { listarCategorias, listarProductos } from '../api/catalogo'
 import { obtenerConfiguracionPagos } from '../api/configuracion'
 import { mensajeErrorApi } from '../api/errorApi'
 import { crearVentaRapida } from '../api/ventas'
-import type { ConfiguracionPago, MedioPago, Producto, Venta } from '../tipos/dominio'
+import { ContadorCantidad } from './ContadorCantidad'
+import { SelectorProductos } from './SelectorProductos'
+import type { Categoria, ConfiguracionPago, MedioPago, Producto, Venta } from '../tipos/dominio'
 
 interface ItemCarrito {
   producto: Producto
@@ -24,20 +26,20 @@ export function FormularioVentaRapida({
   onGuardado: (venta: Venta) => void
   onCancelar: () => void
 }) {
+  const [categorias, setCategorias] = useState<Categoria[]>([])
   const [productos, setProductos] = useState<Producto[]>([])
   const [pagos, setPagos] = useState<ConfiguracionPago | null>(null)
-  const [productoId, setProductoId] = useState('')
-  const [cantidad, setCantidad] = useState('1')
+  const [productoElegido, setProductoElegido] = useState<Producto | null>(null)
+  const [cantidad, setCantidad] = useState(1)
   const [carrito, setCarrito] = useState<ItemCarrito[]>([])
   const [medioPago, setMedioPago] = useState<MedioPago | ''>('')
   const [error, setError] = useState<string | null>(null)
   const [guardando, setGuardando] = useState(false)
 
   useEffect(() => {
+    listarCategorias().then(setCategorias)
     listarProductos().then((lista) => {
-      const activos = lista.filter((producto) => producto.activo)
-      setProductos(activos)
-      setProductoId(activos[0]?.id ?? '')
+      setProductos(lista.filter((producto) => producto.activo))
     })
     obtenerConfiguracionPagos().then(setPagos)
   }, [])
@@ -51,11 +53,10 @@ export function FormularioVentaRapida({
     : []
 
   function agregarAlCarrito() {
-    const producto = productos.find((p) => p.id === productoId)
-    const cantidadNumerica = Number(cantidad)
-    if (!producto || !(cantidadNumerica > 0)) return
-    setCarrito((actual) => [...actual, { producto, cantidad: cantidadNumerica }])
-    setCantidad('1')
+    if (!productoElegido || !(cantidad > 0)) return
+    setCarrito((actual) => [...actual, { producto: productoElegido, cantidad }])
+    setCantidad(1)
+    setProductoElegido(null)
   }
 
   function quitarDelCarrito(indice: number) {
@@ -96,34 +97,23 @@ export function FormularioVentaRapida({
     <form className="formulario-panel formulario-venta-rapida" onSubmit={manejarEnvio}>
       <h3>Venta rápida</h3>
 
-      <label htmlFor="venta-rapida-producto">Producto</label>
-      <select
-        id="venta-rapida-producto"
-        value={productoId}
-        onChange={(evento) => setProductoId(evento.target.value)}
-      >
-        {productos.map((producto) => (
-          <option key={producto.id} value={producto.id}>
-            {producto.nombre} — {producto.precio_venta}
-          </option>
-        ))}
-      </select>
+      <label>Producto</label>
+      <SelectorProductos categorias={categorias} productos={productos} onSeleccionar={setProductoElegido} />
 
-      <label htmlFor="venta-rapida-cantidad">Cantidad</label>
-      <input
-        id="venta-rapida-cantidad"
-        type="number"
-        min="0.01"
-        step="0.01"
-        value={cantidad}
-        onChange={(evento) => setCantidad(evento.target.value)}
-      />
-
-      <div className="acciones-formulario">
-        <button type="button" className="boton-secundario" onClick={agregarAlCarrito}>
-          Agregar
-        </button>
-      </div>
+      {productoElegido && (
+        <div className="formulario-panel">
+          <p className="campo-solo-lectura">
+            <strong>{productoElegido.nombre}</strong> — {productoElegido.precio_venta}
+          </p>
+          <label htmlFor="venta-rapida-cantidad">Cantidad</label>
+          <ContadorCantidad id="venta-rapida-cantidad" valor={cantidad} onCambiar={setCantidad} />
+          <div className="acciones-formulario">
+            <button type="button" className="boton-secundario" onClick={agregarAlCarrito}>
+              Agregar al carrito
+            </button>
+          </div>
+        </div>
+      )}
 
       <ul className="lista-categorias">
         {carrito.map((item, indice) => (

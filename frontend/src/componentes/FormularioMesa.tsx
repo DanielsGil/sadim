@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { crearMesa } from '../api/mesas'
 import { ErrorApi } from '../api/errorApi'
+import { erroresPorCampo } from '../api/erroresPorCampo'
 import type { Mesa } from '../tipos/dominio'
 
 interface Props {
@@ -12,16 +13,19 @@ interface Props {
 export function FormularioMesa({ onGuardado, onCancelar }: Props) {
   const [numero, setNumero] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [erroresCampo, setErroresCampo] = useState<Record<string, string>>({})
   const [guardando, setGuardando] = useState(false)
 
   async function manejarEnvio(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
     setError(null)
+    setErroresCampo({})
     setGuardando(true)
     try {
       const mesa = await crearMesa(Number(numero))
       onGuardado(mesa)
     } catch (err) {
+      setErroresCampo(erroresPorCampo(err))
       setError(err instanceof ErrorApi ? err.message : 'No se pudo crear la mesa.')
     } finally {
       setGuardando(false)
@@ -42,6 +46,7 @@ export function FormularioMesa({ onGuardado, onCancelar }: Props) {
         onChange={(evento) => setNumero(evento.target.value)}
         required
       />
+      {erroresCampo.numero && <p className="mensaje-error-campo">{erroresCampo.numero}</p>}
 
       {error && (
         <p className="mensaje-error" role="alert">

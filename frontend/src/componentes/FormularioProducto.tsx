@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { crearProducto, editarProducto, type DatosProducto } from '../api/catalogo'
 import { ErrorApi } from '../api/errorApi'
+import { erroresPorCampo } from '../api/erroresPorCampo'
 import type { Categoria, Producto, TipoProducto } from '../tipos/dominio'
 
 interface Props {
@@ -28,11 +29,13 @@ export function FormularioProducto({ categorias, productoInicial, onGuardado, on
   const [stockMinimo, setStockMinimo] = useState(String(productoInicial?.stock_minimo ?? '0'))
   const [controlaStock, setControlaStock] = useState(productoInicial?.controla_stock ?? true)
   const [error, setError] = useState<string | null>(null)
+  const [erroresCampo, setErroresCampo] = useState<Record<string, string>>({})
   const [guardando, setGuardando] = useState(false)
 
   async function manejarEnvio(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
     setError(null)
+    setErroresCampo({})
     setGuardando(true)
     try {
       const datos: DatosProducto = {
@@ -50,6 +53,7 @@ export function FormularioProducto({ categorias, productoInicial, onGuardado, on
         : await crearProducto(datos)
       onGuardado(producto)
     } catch (err) {
+      setErroresCampo(erroresPorCampo(err))
       setError(err instanceof ErrorApi ? err.message : 'No se pudo guardar el producto.')
     } finally {
       setGuardando(false)
@@ -73,6 +77,9 @@ export function FormularioProducto({ categorias, productoInicial, onGuardado, on
           </option>
         ))}
       </select>
+      {erroresCampo.categoria_id && (
+        <p className="mensaje-error-campo">{erroresCampo.categoria_id}</p>
+      )}
 
       <label htmlFor="producto-nombre">Nombre</label>
       <input
@@ -81,6 +88,7 @@ export function FormularioProducto({ categorias, productoInicial, onGuardado, on
         onChange={(evento) => setNombre(evento.target.value)}
         required
       />
+      {erroresCampo.nombre && <p className="mensaje-error-campo">{erroresCampo.nombre}</p>}
 
       <label htmlFor="producto-tipo">Tipo</label>
       <select
@@ -102,6 +110,9 @@ export function FormularioProducto({ categorias, productoInicial, onGuardado, on
         onChange={(evento) => setPrecioVenta(evento.target.value)}
         required
       />
+      {erroresCampo.precio_venta && (
+        <p className="mensaje-error-campo">{erroresCampo.precio_venta}</p>
+      )}
 
       <label htmlFor="producto-costo">Costo de producción (COP, opcional)</label>
       <input
@@ -112,6 +123,9 @@ export function FormularioProducto({ categorias, productoInicial, onGuardado, on
         value={costoProduccion}
         onChange={(evento) => setCostoProduccion(evento.target.value)}
       />
+      {erroresCampo.costo_produccion && (
+        <p className="mensaje-error-campo">{erroresCampo.costo_produccion}</p>
+      )}
 
       <label htmlFor="producto-unidad">Unidad de medida</label>
       <input
@@ -121,6 +135,9 @@ export function FormularioProducto({ categorias, productoInicial, onGuardado, on
         placeholder="unidad, kg, litro…"
         required
       />
+      {erroresCampo.unidad_medida && (
+        <p className="mensaje-error-campo">{erroresCampo.unidad_medida}</p>
+      )}
 
       <label className="etiqueta-checkbox">
         <input
@@ -142,6 +159,9 @@ export function FormularioProducto({ categorias, productoInicial, onGuardado, on
             value={stockMinimo}
             onChange={(evento) => setStockMinimo(evento.target.value)}
           />
+          {erroresCampo.stock_minimo && (
+            <p className="mensaje-error-campo">{erroresCampo.stock_minimo}</p>
+          )}
         </>
       )}
 

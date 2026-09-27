@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { crearCategoria, editarCategoria } from '../api/catalogo'
 import { ErrorApi } from '../api/errorApi'
+import { erroresPorCampo } from '../api/erroresPorCampo'
 import type { Categoria } from '../tipos/dominio'
 
 interface Props {
@@ -13,11 +14,13 @@ interface Props {
 export function FormularioCategoria({ categoriaInicial, onGuardado, onCancelar }: Props) {
   const [nombre, setNombre] = useState(categoriaInicial?.nombre ?? '')
   const [error, setError] = useState<string | null>(null)
+  const [erroresCampo, setErroresCampo] = useState<Record<string, string>>({})
   const [guardando, setGuardando] = useState(false)
 
   async function manejarEnvio(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
     setError(null)
+    setErroresCampo({})
     setGuardando(true)
     try {
       const categoria = categoriaInicial
@@ -25,6 +28,7 @@ export function FormularioCategoria({ categoriaInicial, onGuardado, onCancelar }
         : await crearCategoria(nombre)
       onGuardado(categoria)
     } catch (err) {
+      setErroresCampo(erroresPorCampo(err))
       setError(err instanceof ErrorApi ? err.message : 'No se pudo guardar la categoría.')
     } finally {
       setGuardando(false)
@@ -42,6 +46,7 @@ export function FormularioCategoria({ categoriaInicial, onGuardado, onCancelar }
         onChange={(evento) => setNombre(evento.target.value)}
         required
       />
+      {erroresCampo.nombre && <p className="mensaje-error-campo">{erroresCampo.nombre}</p>}
 
       {error && (
         <p className="mensaje-error" role="alert">

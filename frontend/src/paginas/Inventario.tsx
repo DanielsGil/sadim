@@ -1,9 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { listarCategorias } from '../api/catalogo'
+import { erroresPorCampo } from '../api/erroresPorCampo'
 import { mensajeErrorApi } from '../api/errorApi'
 import { listarMovimientos, registrarAjusteManual, registrarMerma } from '../api/inventarioMovimientos'
 import { listarStock } from '../api/inventarioStock'
 import { AvisoCopiaLocal, EtiquetaProvisional } from '../componentes/AvisoLocal'
+import { ContadorCantidad } from '../componentes/ContadorCantidad'
 import { useSesion } from '../contexto/SesionContext'
 import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { Categoria, MovimientoInventario, StockProducto } from '../tipos/dominio'
@@ -26,10 +28,11 @@ export function Inventario() {
 
   const [tipoAjuste, setTipoAjuste] = useState<'MERMA' | 'AJUSTE_MANUAL'>('MERMA')
   const [sentidoAjuste, setSentidoAjuste] = useState<'SUMA' | 'RESTA'>('RESTA')
-  const [cantidadAjuste, setCantidadAjuste] = useState('')
+  const [cantidadAjuste, setCantidadAjuste] = useState(1)
   const [motivoAjuste, setMotivoAjuste] = useState('')
   const [guardandoAjuste, setGuardandoAjuste] = useState(false)
   const [errorAjuste, setErrorAjuste] = useState<string | null>(null)
+  const [erroresAjuste, setErroresAjuste] = useState<Record<string, string>>({})
 
   useEffect(() => {
     listarCategorias().then(setCategorias)
@@ -58,18 +61,20 @@ export function Inventario() {
     evento.preventDefault()
     if (!productoSeleccionado || !cantidadAjuste || !motivoAjuste) return
     setErrorAjuste(null)
+    setErroresAjuste({})
     setGuardandoAjuste(true)
     try {
       if (tipoAjuste === 'MERMA') {
-        await registrarMerma(productoSeleccionado.id, Number(cantidadAjuste), motivoAjuste)
+        await registrarMerma(productoSeleccionado.id, cantidadAjuste, motivoAjuste)
       } else {
-        await registrarAjusteManual(productoSeleccionado.id, sentidoAjuste, Number(cantidadAjuste), motivoAjuste)
+        await registrarAjusteManual(productoSeleccionado.id, sentidoAjuste, cantidadAjuste, motivoAjuste)
       }
-      setCantidadAjuste('')
+      setCantidadAjuste(1)
       setMotivoAjuste('')
       recargarStock()
       listarMovimientos(productoSeleccionado.id).then(setHistorial)
     } catch (err) {
+      setErroresAjuste(erroresPorCampo(err))
       setErrorAjuste(mensajeErrorApi(err, 'No se pudo registrar el ajuste.'))
     } finally {
       setGuardandoAjuste(false)
@@ -215,15 +220,10 @@ export function Inventario() {
               )}
 
               <label htmlFor="ajuste-cantidad">Cantidad</label>
-              <input
-                id="ajuste-cantidad"
-                type="number"
-                min="0.01"
-                step="0.01"
-                value={cantidadAjuste}
-                onChange={(evento) => setCantidadAjuste(evento.target.value)}
-                required
-              />
+              <ContadorCantidad id="ajuste-cantidad" valor={cantidadAjuste} onCambiar={setCantidadAjuste} />
+              {erroresAjuste.cantidad && (
+                <p className="mensaje-error-campo">{erroresAjuste.cantidad}</p>
+              )}
 
               <label htmlFor="ajuste-motivo">Motivo</label>
               <input
@@ -232,6 +232,9 @@ export function Inventario() {
                 onChange={(evento) => setMotivoAjuste(evento.target.value)}
                 required
               />
+              {erroresAjuste.motivo && (
+                <p className="mensaje-error-campo">{erroresAjuste.motivo}</p>
+              )}
 
               {errorAjuste && (
                 <p className="mensaje-error" role="alert">

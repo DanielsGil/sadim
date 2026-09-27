@@ -5,6 +5,7 @@ import {
   obtenerConfiguracionModulos,
   obtenerConfiguracionPagos,
 } from '../api/configuracion'
+import { erroresPorCampo } from '../api/erroresPorCampo'
 import { ErrorApi } from '../api/errorApi'
 import { useSesion } from '../contexto/SesionContext'
 import { useEstadoLocal } from '../sync/useEstadoLocal'
@@ -30,6 +31,7 @@ export function Configuracion() {
   const [cargando, setCargando] = useState(true)
   const [errorModulos, setErrorModulos] = useState<string | null>(null)
   const [errorPagos, setErrorPagos] = useState<string | null>(null)
+  const [erroresCampoPagos, setErroresCampoPagos] = useState<Record<string, string>>({})
   const [guardandoPagos, setGuardandoPagos] = useState(false)
 
   useEffect(() => {
@@ -64,6 +66,7 @@ export function Configuracion() {
     evento.preventDefault()
     if (!pagos) return
     setErrorPagos(null)
+    setErroresCampoPagos({})
     setGuardandoPagos(true)
     try {
       const actualizado = await actualizarConfiguracionPagos({
@@ -75,6 +78,7 @@ export function Configuracion() {
       })
       setPagos(actualizado)
     } catch (err) {
+      setErroresCampoPagos(erroresPorCampo(err))
       setErrorPagos(err instanceof ErrorApi ? err.message : 'No se pudo guardar la configuración de pagos.')
     } finally {
       setGuardandoPagos(false)
@@ -153,6 +157,9 @@ export function Configuracion() {
               value={nequiTitular}
               onChange={(evento) => setNequiTitular(evento.target.value)}
             />
+            {erroresCampoPagos.nequi_titular && (
+              <p className="mensaje-error-campo">{erroresCampoPagos.nequi_titular}</p>
+            )}
 
             <label htmlFor="pagos-nequi-llave">
               Llave Nequi
@@ -164,6 +171,9 @@ export function Configuracion() {
               onChange={(evento) => setNequiLlave(evento.target.value)}
               required={pagos.acepta_transferencia || pagos.acepta_qr}
             />
+            {erroresCampoPagos.nequi_llave && (
+              <p className="mensaje-error-campo">{erroresCampoPagos.nequi_llave}</p>
+            )}
 
             {errorPagos && (
               <p className="mensaje-error" role="alert">
