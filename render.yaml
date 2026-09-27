@@ -1,0 +1,24 @@
+# Bloque 6a (D25): Blueprint de Render — un solo Web Service (Docker, plan
+# Free) que sirve la API de Django y la PWA ya construida en el mismo
+# dominio. Declara solo los NOMBRES de las variables; los valores se
+# configuran a mano en el dashboard de Render (ver DESPLIEGUE.md) — ninguno
+# de ellos va en este archivo.
+services:
+  - type: web
+    name: sadim
+    runtime: docker
+    plan: free
+    region: virginia
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health/
+    envVars:
+      - key: DEBUG
+        value: "False"
+      - key: SECRET_KEY
+        sync: false
+      - key: ALLOWED_HOSTS
+        sync: false
+      - key: CSRF_TRUSTED_ORIGINS
+        sync: false
+      - key: DATABASE_URL
+        sync: false

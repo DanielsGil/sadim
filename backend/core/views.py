@@ -1,6 +1,9 @@
+from django.conf import settings
+from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import mixins, viewsets
 from rest_framework.exceptions import NotFound
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -13,6 +16,33 @@ from .serializers import (
     EditarDispositivoSerializer,
 )
 from .services import actualizar_configuracion_modulos, editar_dispositivo
+
+
+class HealthView(APIView):
+    """GET /api/health/ — Bloque 6a (D25). Público y sin tocar la base de
+    datos: sirve para despertar el plan Free de Render sin gastar horas ni
+    conexiones de Neon."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        return Response({'status': 'ok'})
+
+
+def spa_view(request, *args, **kwargs):
+    """Sirve index.html del build de la PWA — Bloque 6a (D25). Cualquier ruta
+    que no sea /api/ ni /admin/ cae aquí (ver core/urls.py), para que rutas de
+    cliente como /ventas sigan funcionando al recargar la página."""
+
+    index_path = settings.FRONTEND_DIST / 'index.html'
+    if not index_path.is_file():
+        return HttpResponse(
+            'El frontend no está construido (falta frontend/dist/index.html; '
+            'corre `npm run build` en frontend/).',
+            status=501,
+        )
+    return HttpResponse(index_path.read_text(encoding='utf-8'))
 
 
 class ConfiguracionPorRolMixin:

@@ -16,12 +16,19 @@ from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
+import dj_database_url
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 # Raíz del repositorio (un nivel arriba de backend/), donde vive .env.
 ROOT_DIR = BASE_DIR.parent
 
 load_dotenv(ROOT_DIR / '.env')
+
+# Bloque 6a (D25): build de la PWA (frontend/dist) que sirve WhiteNoise/spa_view
+# en producción. En desarrollo, si no se ha corrido `npm run build`, no existe;
+# spa_view responde 501 en ese caso en vez de fallar al importar settings.
+FRONTEND_DIST = ROOT_DIR / 'frontend' / 'dist'
 
 # SECURITY WARNING: keep the secret key used in production secret!
 # Fallback solo para desarrollo si falta .env; en producción SECRET_KEY debe venir del entorno.
@@ -33,7 +40,16 @@ SECRET_KEY = os.environ.get(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = []
+# Bloque 6a (D25): en producción (Render) llega por env, separado por comas
+# (p. ej. "sadim.onrender.com"). En desarrollo, sin la variable, basta localhost.
+ALLOWED_HOSTS = [h.strip() for h in os.environ.get('ALLOWED_HOSTS', '').split(',') if h.strip()]
+if DEBUG and not ALLOWED_HOSTS:
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+
+# Necesario porque Django exige que el origen del formulario/CSRF esté en la
+# lista cuando se sirve por HTTPS detrás de un proxy (Render). Vacío en
+# desarrollo (no hace falta con runserver en HTTP).
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()]
 
 
 # Application definition
@@ -57,6 +73,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Bloque 6a (D25): sirve el build de la PWA y los estáticos del admin
+    # directamente desde el proceso de gunicorn, sin un servidor aparte.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -88,16 +107,25 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('DB_NAME', 'sadim_db'),
-        'USER': os.environ.get('DB_USER', 'sadim'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
-        'HOST': os.environ.get('DB_HOST', 'localhost'),
-        'PORT': os.environ.get('DB_PORT', '5432'),
+# Bloque 6a (D25): en producción (Render) llega DATABASE_URL apuntando a Neon,
+# que exige SSL. En desarrollo no se define esa variable, así que se sigue
+# usando el esquema de variables sueltas de siempre (.env actual, sin cambios).
+_DATABASE_URL = os.environ.get('DATABASE_URL')
+if _DATABASE_URL:
+    DATABASES = {
+        'default': dj_database_url.parse(_DATABASE_URL, conn_max_age=600, ssl_require=True),
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get('DB_NAME', 'sadim_db'),
+            'USER': os.environ.get('DB_USER', 'sadim'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+            'HOST': os.environ.get('DB_HOST', 'localhost'),
+            'PORT': os.environ.get('DB_PORT', '5432'),
+        }
+    }
 
 
 # Password validation
@@ -139,6 +167,29 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+# `collectstatic` reúne aquí los estáticos del admin (WhiteNoise los sirve
+# desde este directorio bajo /static/, matching gitignore /backend/staticfiles/).
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
+}
+
+# Bloque 6a (D25): sirve el build de la PWA (frontend/dist) desde la raíz del
+# dominio (/, /assets/..., /manifest.webmanifest, /sw.js), sin pasar por
+# collectstatic ni por STATIC_URL. Solo si el build existe (en desarrollo,
+# sin `npm run build`, WhiteNoise simplemente no tiene nada que servir ahí).
+if FRONTEND_DIST.is_dir():
+    WHITENOISE_ROOT = FRONTEND_DIST
+
+# Los archivos hasheados por Vite viven bajo dist/assets/ (p. ej.
+# assets/index-4f2a9c1b.js): son inmutables y pueden cachearse un año.
+# Todo lo demás en la raíz del build (index.html, manifest.webmanifest,
+# sw.js, registerSW.js, favicon.svg) NO lleva hash en el nombre y debe
+# revalidarse siempre, para que las actualizaciones de la PWA lleguen a los
+# usuarios sin quedar atrapadas en caché del navegador/CDN.
+WHITENOISE_IMMUTABLE_FILE_TEST = lambda path, url: '/assets/' in url
+WHITENOISE_MAX_AGE = 0
 
 
 # Email
@@ -176,3 +227,12 @@ AUTH_USER_MODEL = 'usuarios.Usuario'
 # solo se activa cuando 'test' aparece en el comando invocado.
 if 'test' in sys.argv:
     PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
+
+# Bloque 6a (D25): Render pone la app detrás de un proxy TLS (el proceso de
+# gunicorn recibe HTTP plano), y solo cuando DEBUG=False para no romper
+# `runserver`/`manage.py test` en desarrollo.
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True

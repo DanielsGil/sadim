@@ -1,0 +1,19 @@
+# Bloque 6a (D25): nada de esto debe entrar a la imagen.
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+node_modules/
+frontend/dist/
+frontend/node_modules/
+backend/staticfiles/
+backend/db.sqlite3
+**/__pycache__/
+*.pyc
+.git/
+.gitignore
+.claude/
+docs/
+*.md
+!DESPLIEGUE.md
