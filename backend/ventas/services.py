@@ -39,25 +39,35 @@ def crear_mesa(*, numero, operation_id, id=None):
 
 
 def editar_mesa(*, mesa, datos):
-    """PATCH /api/mesas/{id}/ — Contrato v2 §7.1: solo activa es editable."""
+    """
+    PATCH /api/mesas/{id}/ — Contrato v2 §7.1: solo activa es editable.
+
+    Reactivar revalida el límite de 15 mesas activas con
+    _mesas_activas_bloqueadas(), que usa select_for_update() para que dos
+    reactivaciones simultáneas no lo superen entre las dos; select_for_update
+    exige estar dentro de una transacción explícita (E-05: perform_update()
+    la llamaba fuera de una, y Django la rechazaba con
+    TransactionManagementError, un 500 sin capturar).
+    """
     nueva_activa = datos.get('activa')
     if nueva_activa is not None and nueva_activa != mesa.activa:
-        if nueva_activa is False:
-            if mesa.estado == Mesa.Estado.OCUPADA:
-                raise ErrorNegocio(
-                    code='MESA_OCUPADA',
-                    message='No se puede desactivar una mesa con una sesión abierta.',
-                    status_code=409,
-                )
-        else:
-            if len(_mesas_activas_bloqueadas()) >= LIMITE_MESAS_ACTIVAS:
-                raise ErrorNegocio(
-                    code='LIMITE_MESAS_EXCEDIDO',
-                    message=f'La instalación ya tiene {LIMITE_MESAS_ACTIVAS} mesas activas.',
-                    status_code=409,
-                )
-        mesa.activa = nueva_activa
-        mesa.save(update_fields=['activa'])
+        with transaction.atomic():
+            if nueva_activa is False:
+                if mesa.estado == Mesa.Estado.OCUPADA:
+                    raise ErrorNegocio(
+                        code='MESA_OCUPADA',
+                        message='No se puede desactivar una mesa con una sesión abierta.',
+                        status_code=409,
+                    )
+            else:
+                if len(_mesas_activas_bloqueadas()) >= LIMITE_MESAS_ACTIVAS:
+                    raise ErrorNegocio(
+                        code='LIMITE_MESAS_EXCEDIDO',
+                        message=f'La instalación ya tiene {LIMITE_MESAS_ACTIVAS} mesas activas.',
+                        status_code=409,
+                    )
+            mesa.activa = nueva_activa
+            mesa.save(update_fields=['activa'])
     return mesa
 
 

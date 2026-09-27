@@ -2,13 +2,34 @@ import { useSesion } from '../contexto/SesionContext'
 
 export interface ElementoNavegacion {
   to: string
-  /** true solo para "Inicio": coincidencia exacta de ruta (NavLink `end`). */
+  /**
+   * Coincidencia exacta de ruta (NavLink `end`). Se calcula sola: un
+   * elemento la necesita cuando su ruta es prefijo de la de OTRO elemento
+   * del menú (p. ej. "/inventario" de "/inventario/ingreso", o "/caja" de
+   * "/caja/cierre") — si no, React Router marca activos a los dos a la vez
+   * (E-03). Cuando el prefijo compartido es con una ruta de DETALLE que no
+   * está en el menú (p. ej. "/ventas/mesas/:id" o "/ordenes/:id"), el
+   * elemento del menú se deja con coincidencia por prefijo a propósito, para
+   * que siga resaltado al entrar al detalle de esa sección.
+   */
   fin?: boolean
   /** Texto tal como se mostraba en la barra lateral de escritorio. */
   etiqueta: string
   /** Etiqueta corta para la barra inferior en móvil. */
   etiquetaCorta: string
   icono: string
+}
+
+function marcarCoincidenciaExacta(
+  elementos: ElementoNavegacion[],
+): ElementoNavegacion[] {
+  const rutas = elementos.map((elemento) => elemento.to)
+  return elementos.map((elemento) => ({
+    ...elemento,
+    fin:
+      elemento.to === '/' ||
+      rutas.some((otra) => otra !== elemento.to && otra.startsWith(`${elemento.to}/`)),
+  }))
 }
 
 /**
@@ -28,7 +49,7 @@ export function useElementosNavegacion(): ElementoNavegacion[] {
   const esAdmin = sesion?.rol === 'ADMIN'
 
   const elementos: Array<ElementoNavegacion | false> = [
-    { to: '/', fin: true, etiqueta: 'Inicio', etiquetaCorta: 'Inicio', icono: '🏠' },
+    { to: '/', etiqueta: 'Inicio', etiquetaCorta: 'Inicio', icono: '🏠' },
     ventasActivo && { to: '/ventas', etiqueta: 'Ventas', etiquetaCorta: 'Ventas', icono: '🛒' },
     ventasActivo &&
       esAdmin && { to: '/mesas', etiqueta: 'Mesas', etiquetaCorta: 'Mesas', icono: '🍽️' },
@@ -56,5 +77,8 @@ export function useElementosNavegacion(): ElementoNavegacion[] {
       { to: '/dispositivos', etiqueta: 'Dispositivos', etiquetaCorta: 'Equipos', icono: '📱' },
   ]
 
-  return elementos.filter((elemento): elemento is ElementoNavegacion => elemento !== false)
+  const visibles = elementos.filter(
+    (elemento): elemento is ElementoNavegacion => elemento !== false,
+  )
+  return marcarCoincidenciaExacta(visibles)
 }

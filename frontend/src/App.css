@@ -228,23 +228,41 @@
   gap: 12px;
 }
 
+/* E-04: tarjetas de tamaño uniforme (misma altura mínima, ícono y etiqueta
+   alineados igual) sin importar el largo del texto de cada sección. */
 .acceso-rapido-inicio {
   display: flex;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 8px;
+  min-height: 96px;
   padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: 10px;
   color: var(--text-h);
   text-decoration: none;
+  text-align: center;
+  box-sizing: border-box;
 }
 
 .acceso-rapido-inicio:hover {
   background: var(--accent-bg);
 }
 
-.acceso-rapido-inicio span {
-  font-size: 20px;
+.acceso-rapido-icono {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.acceso-rapido-etiqueta {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  line-height: 1.3;
 }
 
 /* Login */

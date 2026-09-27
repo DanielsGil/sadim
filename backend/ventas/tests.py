@@ -1,18 +1,21 @@
 import threading
 import uuid
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.db import connection
 from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from core.exceptions import ErrorNegocio
 from core.models import ConfiguracionModulo, ConfiguracionPago
 from finanzas.models import MovimientoCaja
 from inventario.models import Categoria, MovimientoInventario, Producto
 from usuarios.models import Usuario
 
 from .models import DetalleVenta, Mesa, Venta
+from .services import editar_mesa
 
 PASSWORD = 'ClaveSegura2026!'
 
@@ -110,6 +113,67 @@ class MesaTests(VentasAPITestCase):
         response = self.c_admin.patch(f'/api/mesas/{mesa.id}/', {'activa': False}, format='json')
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.data['activa'])
+
+    def test_reactivar_por_encima_del_limite_responde_409(self):
+        # numero es único y está limitado a 1..15 (CHECK), así que nunca
+        # puede haber más de 15 mesas a la vez: no hay forma de reproducir
+        # "16 mesas" a través de la API. Se prueba el servicio directamente,
+        # simulando que el conteo bloqueado ya está en el límite.
+        mesa = Mesa.objects.create(numero=1, activa=False)
+        with patch('ventas.services._mesas_activas_bloqueadas', return_value=[object()] * 15):
+            with self.assertRaises(ErrorNegocio) as contexto:
+                editar_mesa(mesa=mesa, datos={'activa': True})
+        self.assertEqual(contexto.exception.code, 'LIMITE_MESAS_EXCEDIDO')
+        self.assertEqual(contexto.exception.status_code, 409)
+
+
+class MesaSinTransaccionImplicitaTests(TransactionTestCase):
+    """
+    E-05: perform_update() en MesaViewSet llamaba a editar_mesa() sin
+    envolverla en una transacción explícita. Al reactivar, editar_mesa()
+    revalida el límite de 15 mesas activas con _mesas_activas_bloqueadas(),
+    que usa select_for_update() — y select_for_update() exige estar dentro
+    de una transacción; si no, Django lanza TransactionManagementError, que
+    no se capturaba y llegaba como 500 ERROR_INTERNO.
+
+    TestCase (usada en el resto de este archivo) envuelve cada prueba en una
+    transacción implícita y por eso nunca detectó el bug; aquí se usa
+    TransactionTestCase, sin esa envoltura, igual que una petición HTTP real
+    en producción (Django no tiene ATOMIC_REQUESTS activado).
+    """
+
+    def setUp(self):
+        self.admin = Usuario.objects.create_user(
+            username='admin1', password=PASSWORD, nombre_completo='Admin Uno', rol='ADMIN',
+        )
+        ConfiguracionModulo.objects.create(actualizado_por=self.admin, actualizado_en=timezone.now())
+        ConfiguracionPago.objects.create(actualizado_por=self.admin, actualizado_en=timezone.now())
+        self.cliente = APIClient()
+        respuesta = self.cliente.post(
+            '/api/auth/login/', {'username': 'admin1', 'password': PASSWORD}, format='json',
+        )
+        self.cliente.credentials(HTTP_AUTHORIZATION=f"Bearer {respuesta.data['access_token']}")
+
+    def test_crear_desactivar_reactivar_mesa_no_responde_500(self):
+        respuesta = self.cliente.post(
+            '/api/mesas/', {'operation_id': str(uuid.uuid4()), 'numero': 1}, format='json',
+        )
+        self.assertEqual(respuesta.status_code, 201)
+        mesa_id = respuesta.data['id']
+
+        respuesta = self.cliente.patch(f'/api/mesas/{mesa_id}/', {'activa': False}, format='json')
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(respuesta.data['activa'])
+
+        respuesta = self.cliente.patch(f'/api/mesas/{mesa_id}/', {'activa': True}, format='json')
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTrue(respuesta.data['activa'])
+
+    def test_desactivar_mesa_ocupada_sigue_dando_409_sin_transaccion_implicita(self):
+        mesa = Mesa.objects.create(numero=1, estado=Mesa.Estado.OCUPADA)
+        respuesta = self.cliente.patch(f'/api/mesas/{mesa.id}/', {'activa': False}, format='json')
+        self.assertEqual(respuesta.status_code, 409)
+        self.assertEqual(respuesta.data['code'], 'MESA_OCUPADA')
 
 
 class VentaRapidaTests(VentasAPITestCase):

@@ -32,8 +32,10 @@ export function Inicio() {
           <div className="accesos-rapidos-inicio">
             {elementos.map((elemento) => (
               <Link key={elemento.to} to={elemento.to} className="acceso-rapido-inicio">
-                <span aria-hidden="true">{elemento.icono}</span>
-                {elemento.etiqueta}
+                <span className="acceso-rapido-icono" aria-hidden="true">
+                  {elemento.icono}
+                </span>
+                <span className="acceso-rapido-etiqueta">{elemento.etiqueta}</span>
               </Link>
             ))}
           </div>
