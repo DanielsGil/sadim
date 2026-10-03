@@ -5,7 +5,7 @@ interface Props {
   categorias: Categoria[]
   productos: Producto[]
   onSeleccionar: (producto: Producto) => void
-  /** E-10: unidades acumuladas por producto (clics aún sin enviar), para mostrarlas en la tarjeta. */
+  /** E-12: unidades de cada producto en la bandeja de selección, visibles en la tarjeta. */
   acumulados?: Record<string, number>
 }
 

@@ -46,19 +46,21 @@ export function Ordenes() {
         </button>
       </div>
 
-      <label htmlFor="ordenes-filtro-estado">Filtrar por estado</label>
-      <select
-        id="ordenes-filtro-estado"
-        value={filtroEstado}
-        onChange={(evento) => setFiltroEstado(evento.target.value)}
-      >
-        <option value="">Todos</option>
-        {Object.entries(ETIQUETA_ESTADO).map(([valor, etiqueta]) => (
-          <option key={valor} value={valor}>
-            {etiqueta}
-          </option>
-        ))}
-      </select>
+      <div className="filtros-productos">
+        <label htmlFor="ordenes-filtro-estado">Filtrar por estado</label>
+        <select
+          id="ordenes-filtro-estado"
+          value={filtroEstado}
+          onChange={(evento) => setFiltroEstado(evento.target.value)}
+        >
+          <option value="">Todos</option>
+          {Object.entries(ETIQUETA_ESTADO).map(([valor, etiqueta]) => (
+            <option key={valor} value={valor}>
+              {etiqueta}
+            </option>
+          ))}
+        </select>
+      </div>
 
       <AvisoCopiaLocal enLinea={enLinea} />
 

@@ -1,0 +1,192 @@
+import { useEffect, useState, type FormEvent } from 'react'
+import { listarProductos } from '../api/catalogo'
+import { erroresPorCampo } from '../api/erroresPorCampo'
+import { mensajeErrorApi } from '../api/errorApi'
+import { registrarAjusteManual, registrarEntrada, registrarMerma } from '../api/inventarioMovimientos'
+import { ContadorCantidad } from './ContadorCantidad'
+import type { Producto } from '../tipos/dominio'
+
+type TipoMovimiento = 'ENTRADA' | 'MERMA' | 'AJUSTE_MANUAL'
+
+interface Props {
+  esAdmin: boolean
+  /** Producto precargado al hacer clic en una fila de la tabla de existencias. */
+  productoIdInicial: string | null
+  /** Tras registrar: recargar existencias e historial en la pantalla. */
+  onRegistrado: (productoId: string) => void
+}
+
+/**
+ * E-13 (Lote de correcciones 5): panel único de movimientos dentro de
+ * Inventario. Ingreso (CU-12, HU-025) para ambos roles; Merma y Ajuste
+ * manual (CU-13, HU-026) solo ADMIN, como pestañas del mismo panel —
+ * mismos permisos que antes (la autorización real sigue en el backend).
+ */
+export function PanelMovimientoInventario({ esAdmin, productoIdInicial, onRegistrado }: Props) {
+  const [productos, setProductos] = useState<Producto[]>([])
+  const [tipo, setTipo] = useState<TipoMovimiento>('ENTRADA')
+  const [productoId, setProductoId] = useState(productoIdInicial ?? '')
+  const [sentido, setSentido] = useState<'SUMA' | 'RESTA'>('RESTA')
+  const [cantidad, setCantidad] = useState(1)
+  const [motivo, setMotivo] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [erroresCampo, setErroresCampo] = useState<Record<string, string>>({})
+  const [mensaje, setMensaje] = useState<string | null>(null)
+  const [guardando, setGuardando] = useState(false)
+
+  function cargarProductos() {
+    listarProductos().then((lista) => {
+      const conStock = lista.filter((producto) => producto.activo && producto.controla_stock)
+      setProductos(conStock)
+      setProductoId((actual) => actual || conStock[0]?.id || '')
+    })
+  }
+
+  useEffect(cargarProductos, [])
+
+  // Clic en una fila de la tabla: precarga ese producto (sin efecto, patrón de "valor previo").
+  const [inicialPrevio, setInicialPrevio] = useState(productoIdInicial)
+  if (productoIdInicial !== inicialPrevio) {
+    setInicialPrevio(productoIdInicial)
+    if (productoIdInicial) setProductoId(productoIdInicial)
+  }
+
+  const pestanas: Array<{ valor: TipoMovimiento; etiqueta: string }> = [
+    { valor: 'ENTRADA', etiqueta: 'Ingreso' },
+    ...(esAdmin
+      ? [
+          { valor: 'MERMA' as const, etiqueta: 'Merma' },
+          { valor: 'AJUSTE_MANUAL' as const, etiqueta: 'Ajuste' },
+        ]
+      : []),
+  ]
+
+  function cambiarPestana(nuevo: TipoMovimiento) {
+    setTipo(nuevo)
+    setError(null)
+    setErroresCampo({})
+    setMensaje(null)
+  }
+
+  async function manejarEnvio(evento: FormEvent<HTMLFormElement>) {
+    evento.preventDefault()
+    setError(null)
+    setErroresCampo({})
+    setMensaje(null)
+    if (!productoId) {
+      setError('Selecciona un producto.')
+      return
+    }
+    setGuardando(true)
+    try {
+      if (tipo === 'ENTRADA') {
+        const movimiento = await registrarEntrada(productoId, cantidad, motivo)
+        setMensaje(`Ingreso registrado: +${movimiento.cantidad} unidades.`)
+      } else if (tipo === 'MERMA') {
+        await registrarMerma(productoId, cantidad, motivo)
+        setMensaje('Merma registrada.')
+      } else {
+        await registrarAjusteManual(productoId, sentido, cantidad, motivo)
+        setMensaje('Ajuste registrado.')
+      }
+      setCantidad(1)
+      setMotivo('')
+      cargarProductos()
+      onRegistrado(productoId)
+    } catch (err) {
+      setErroresCampo(erroresPorCampo(err))
+      setError(mensajeErrorApi(err, 'No se pudo registrar el movimiento.'))
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  const textoBoton =
+    tipo === 'ENTRADA' ? 'Registrar ingreso' : tipo === 'MERMA' ? 'Registrar merma' : 'Registrar ajuste'
+
+  return (
+    <section className="panel-movimiento">
+      <h3>Registrar movimiento</h3>
+
+      {pestanas.length > 1 && (
+        <div className="pestanas" role="tablist">
+          {pestanas.map((pestana) => (
+            <button
+              key={pestana.valor}
+              type="button"
+              role="tab"
+              aria-selected={tipo === pestana.valor}
+              className={`pestana ${tipo === pestana.valor ? 'pestana-activa' : ''}`}
+              onClick={() => cambiarPestana(pestana.valor)}
+            >
+              {pestana.etiqueta}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {productos.length === 0 ? (
+        <p className="texto-vacio">
+          No hay productos con control de existencias (controla_stock) en el catálogo.
+        </p>
+      ) : (
+        <form className="formulario-movimiento" onSubmit={manejarEnvio}>
+          <label htmlFor="movimiento-producto">Producto</label>
+          <select
+            id="movimiento-producto"
+            value={productoId}
+            onChange={(evento) => setProductoId(evento.target.value)}
+            required
+          >
+            {productos.map((producto) => (
+              <option key={producto.id} value={producto.id}>
+                {producto.nombre} (stock actual: {producto.stock_actual})
+              </option>
+            ))}
+          </select>
+
+          {tipo === 'AJUSTE_MANUAL' && (
+            <>
+              <label htmlFor="movimiento-sentido">Sentido</label>
+              <select
+                id="movimiento-sentido"
+                value={sentido}
+                onChange={(evento) => setSentido(evento.target.value as 'SUMA' | 'RESTA')}
+              >
+                <option value="SUMA">Suma (sobraban unidades)</option>
+                <option value="RESTA">Resta (faltaban unidades)</option>
+              </select>
+            </>
+          )}
+
+          <label htmlFor="movimiento-cantidad">Cantidad</label>
+          <ContadorCantidad id="movimiento-cantidad" valor={cantidad} onCambiar={setCantidad} />
+          {erroresCampo.cantidad && <p className="mensaje-error-campo">{erroresCampo.cantidad}</p>}
+
+          <label htmlFor="movimiento-motivo">{tipo === 'ENTRADA' ? 'Motivo (opcional)' : 'Motivo'}</label>
+          <input
+            id="movimiento-motivo"
+            value={motivo}
+            onChange={(evento) => setMotivo(evento.target.value)}
+            placeholder={tipo === 'ENTRADA' ? 'Compra de mercancía…' : undefined}
+            required={tipo !== 'ENTRADA'}
+          />
+          {erroresCampo.motivo && <p className="mensaje-error-campo">{erroresCampo.motivo}</p>}
+
+          {mensaje && <p className="campo-solo-lectura">{mensaje}</p>}
+          {error && (
+            <p className="mensaje-error" role="alert">
+              {error}
+            </p>
+          )}
+
+          <div className="acciones-formulario">
+            <button type="submit" disabled={guardando}>
+              {guardando ? 'Registrando…' : textoBoton}
+            </button>
+          </div>
+        </form>
+      )}
+    </section>
+  )
+}

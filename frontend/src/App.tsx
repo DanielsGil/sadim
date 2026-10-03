@@ -11,7 +11,6 @@ import { DetalleOrden } from './paginas/DetalleOrden'
 import { DetalleSesion } from './paginas/DetalleSesion'
 import { Dispositivos } from './paginas/Dispositivos'
 import { Inicio } from './paginas/Inicio'
-import { IngresoMercancia } from './paginas/IngresoMercancia'
 import { Inventario } from './paginas/Inventario'
 import { Login } from './paginas/Login'
 import { Mesas } from './paginas/Mesas'
@@ -30,7 +29,8 @@ function App() {
           <Route path="/ventas" element={<Ventas />} />
           <Route path="/ventas/mesas/:mesaId" element={<DetalleSesion />} />
           <Route path="/inventario" element={<Inventario />} />
-          <Route path="/inventario/ingreso" element={<IngresoMercancia />} />
+          {/* E-13: el ingreso de mercancía vive dentro de Inventario; la ruta vieja redirige. */}
+          <Route path="/inventario/ingreso" element={<Navigate to="/inventario" replace />} />
           <Route path="/ordenes" element={<Ordenes />} />
           <Route path="/ordenes/:ordenId" element={<DetalleOrden />} />
           <Route path="/caja" element={<Caja />} />

@@ -1,16 +1,20 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState } from 'react'
 import { listarCategorias } from '../api/catalogo'
-import { erroresPorCampo } from '../api/erroresPorCampo'
 import { mensajeErrorApi } from '../api/errorApi'
-import { listarMovimientos, registrarAjusteManual, registrarMerma } from '../api/inventarioMovimientos'
+import { listarMovimientos } from '../api/inventarioMovimientos'
 import { listarStock } from '../api/inventarioStock'
 import { AvisoCopiaLocal, EtiquetaProvisional } from '../componentes/AvisoLocal'
-import { ContadorCantidad } from '../componentes/ContadorCantidad'
+import { PanelMovimientoInventario } from '../componentes/PanelMovimientoInventario'
 import { useSesion } from '../contexto/SesionContext'
 import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { Categoria, MovimientoInventario, StockProducto } from '../tipos/dominio'
 
-/** Inventario (CU-11, CU-13, HU-024, HU-026): existencias, historial y ajustes (ADMIN). */
+/**
+ * Inventario (CU-11, CU-12, CU-13, HU-024, HU-025, HU-026): existencias,
+ * historial y movimientos en una sola pantalla (E-13). Escritorio: tabla a
+ * la izquierda y panel de movimiento a la derecha; celular: la tabla ocupa
+ * la pantalla y «Registrar movimiento» abre el panel en una hoja.
+ */
 export function Inventario() {
   const { sesion } = useSesion()
   const esAdmin = sesion?.rol === 'ADMIN'
@@ -25,14 +29,7 @@ export function Inventario() {
 
   const [productoSeleccionado, setProductoSeleccionado] = useState<StockProducto | null>(null)
   const [historial, setHistorial] = useState<MovimientoInventario[]>([])
-
-  const [tipoAjuste, setTipoAjuste] = useState<'MERMA' | 'AJUSTE_MANUAL'>('MERMA')
-  const [sentidoAjuste, setSentidoAjuste] = useState<'SUMA' | 'RESTA'>('RESTA')
-  const [cantidadAjuste, setCantidadAjuste] = useState(1)
-  const [motivoAjuste, setMotivoAjuste] = useState('')
-  const [guardandoAjuste, setGuardandoAjuste] = useState(false)
-  const [errorAjuste, setErrorAjuste] = useState<string | null>(null)
-  const [erroresAjuste, setErroresAjuste] = useState<Record<string, string>>({})
+  const [hojaAbierta, setHojaAbierta] = useState(false)
 
   useEffect(() => {
     listarCategorias().then(setCategorias)
@@ -51,206 +48,165 @@ export function Inventario() {
 
   useEffect(recargarStock, [filtroCategoria, filtroTipo])
 
-  function verHistorial(producto: StockProducto) {
+  /** Clic en una fila: muestra su historial y lo precarga en el panel de movimiento. */
+  function seleccionarProducto(producto: StockProducto) {
     setProductoSeleccionado(producto)
-    setErrorAjuste(null)
     listarMovimientos(producto.id).then(setHistorial)
   }
 
-  async function manejarAjuste(evento: FormEvent<HTMLFormElement>) {
-    evento.preventDefault()
-    if (!productoSeleccionado || !cantidadAjuste || !motivoAjuste) return
-    setErrorAjuste(null)
-    setErroresAjuste({})
-    setGuardandoAjuste(true)
-    try {
-      if (tipoAjuste === 'MERMA') {
-        await registrarMerma(productoSeleccionado.id, cantidadAjuste, motivoAjuste)
-      } else {
-        await registrarAjusteManual(productoSeleccionado.id, sentidoAjuste, cantidadAjuste, motivoAjuste)
-      }
-      setCantidadAjuste(1)
-      setMotivoAjuste('')
-      recargarStock()
-      listarMovimientos(productoSeleccionado.id).then(setHistorial)
-    } catch (err) {
-      setErroresAjuste(erroresPorCampo(err))
-      setErrorAjuste(mensajeErrorApi(err, 'No se pudo registrar el ajuste.'))
-    } finally {
-      setGuardandoAjuste(false)
+  function alRegistrar(productoId: string) {
+    recargarStock()
+    if (productoSeleccionado?.id === productoId) {
+      listarMovimientos(productoId).then(setHistorial)
     }
   }
 
   return (
     <div className="pagina-inventario">
-      <h1>Inventario</h1>
+      <div className="encabezado-seccion">
+        <h1>Inventario</h1>
+        <button type="button" className="boton-abrir-movimiento" onClick={() => setHojaAbierta(true)}>
+          Registrar movimiento
+        </button>
+      </div>
 
-      <label htmlFor="inventario-filtro-categoria">Categoría</label>
-      <select
-        id="inventario-filtro-categoria"
-        value={filtroCategoria}
-        onChange={(evento) => setFiltroCategoria(evento.target.value)}
-      >
-        <option value="">Todas</option>
-        {categorias.map((categoria) => (
-          <option key={categoria.id} value={categoria.id}>{categoria.nombre}</option>
-        ))}
-      </select>
+      <div className="inventario-columnas">
+        <div className="inventario-existencias">
+          <div className="filtros-productos">
+            <label htmlFor="inventario-filtro-categoria">Categoría</label>
+            <select
+              id="inventario-filtro-categoria"
+              value={filtroCategoria}
+              onChange={(evento) => setFiltroCategoria(evento.target.value)}
+            >
+              <option value="">Todas</option>
+              {categorias.map((categoria) => (
+                <option key={categoria.id} value={categoria.id}>{categoria.nombre}</option>
+              ))}
+            </select>
 
-      <label htmlFor="inventario-filtro-tipo">Tipo</label>
-      <select
-        id="inventario-filtro-tipo"
-        value={filtroTipo}
-        onChange={(evento) => setFiltroTipo(evento.target.value)}
-      >
-        <option value="">Todos</option>
-        <option value="INSUMO_PRODUCCION">Insumo de producción</option>
-        <option value="REVENTA_DIRECTA">Reventa directa</option>
-      </select>
-
-      <AvisoCopiaLocal enLinea={enLinea} />
-
-      {error && (
-        <p className="mensaje-error" role="alert">
-          {error}
-        </p>
-      )}
-
-      {cargando ? (
-        <p className="cargando">Cargando existencias…</p>
-      ) : (
-        <table className="tabla-productos">
-          <thead>
-            <tr>
-              <th>Producto</th>
-              <th>Stock actual</th>
-              <th>Stock mínimo</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {stock.map((producto) => (
-              <tr
-                key={producto.id}
-                className="fila-clicable"
-                onClick={() => verHistorial(producto)}
-              >
-                <td>{producto.nombre}</td>
-                <td>
-                  {producto.controla_stock ? producto.stock_actual : '—'}
-                  <EtiquetaProvisional visible={provisional && producto.controla_stock} />
-                </td>
-                <td>{producto.controla_stock ? producto.stock_minimo : '—'}</td>
-                <td>
-                  {producto.alerta_stock_minimo && (
-                    <span className="insignia-alerta-stock">Stock mínimo</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {stock.length === 0 && (
-              <tr>
-                <td colSpan={4} className="texto-vacio">No hay productos que coincidan con el filtro.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      )}
-
-      {productoSeleccionado && (
-        <section className="formulario-panel">
-          <div className="encabezado-seccion">
-            <h3>Historial — {productoSeleccionado.nombre}</h3>
-            <button type="button" className="boton-secundario" onClick={() => setProductoSeleccionado(null)}>
-              Cerrar
-            </button>
+            <label htmlFor="inventario-filtro-tipo">Tipo</label>
+            <select
+              id="inventario-filtro-tipo"
+              value={filtroTipo}
+              onChange={(evento) => setFiltroTipo(evento.target.value)}
+            >
+              <option value="">Todos</option>
+              <option value="INSUMO_PRODUCCION">Insumo de producción</option>
+              <option value="REVENTA_DIRECTA">Reventa directa</option>
+            </select>
           </div>
 
-          <table className="tabla-productos">
-            <thead>
-              <tr>
-                <th>Tipo</th>
-                <th>Cantidad</th>
-                <th>Fecha</th>
-                <th>Motivo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {historial.map((movimiento) => (
-                <tr key={movimiento.id}>
-                  <td>{movimiento.tipo}{movimiento.sentido ? ` (${movimiento.sentido})` : ''}</td>
-                  <td>{movimiento.cantidad}</td>
-                  <td>{movimiento.fecha}</td>
-                  <td>{movimiento.motivo ?? '—'}</td>
-                </tr>
-              ))}
-              {historial.length === 0 && (
+          <AvisoCopiaLocal enLinea={enLinea} />
+
+          {error && (
+            <p className="mensaje-error" role="alert">
+              {error}
+            </p>
+          )}
+
+          {cargando ? (
+            <p className="cargando">Cargando existencias…</p>
+          ) : (
+            <table className="tabla-productos">
+              <thead>
                 <tr>
-                  <td colSpan={4} className="texto-vacio">Sin movimientos registrados.</td>
+                  <th>Producto</th>
+                  <th>Stock actual</th>
+                  <th>Stock mínimo</th>
+                  <th></th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-
-          {esAdmin && productoSeleccionado.controla_stock && (
-            <form className="formulario-panel" onSubmit={manejarAjuste}>
-              <h4>Registrar ajuste</h4>
-              <label htmlFor="ajuste-tipo">Tipo</label>
-              <select
-                id="ajuste-tipo"
-                value={tipoAjuste}
-                onChange={(evento) => setTipoAjuste(evento.target.value as 'MERMA' | 'AJUSTE_MANUAL')}
-              >
-                <option value="MERMA">Merma</option>
-                <option value="AJUSTE_MANUAL">Ajuste manual (conteo físico)</option>
-              </select>
-
-              {tipoAjuste === 'AJUSTE_MANUAL' && (
-                <>
-                  <label htmlFor="ajuste-sentido">Sentido</label>
-                  <select
-                    id="ajuste-sentido"
-                    value={sentidoAjuste}
-                    onChange={(evento) => setSentidoAjuste(evento.target.value as 'SUMA' | 'RESTA')}
+              </thead>
+              <tbody>
+                {stock.map((producto) => (
+                  <tr
+                    key={producto.id}
+                    className={`fila-clicable ${productoSeleccionado?.id === producto.id ? 'fila-seleccionada' : ''}`}
+                    onClick={() => seleccionarProducto(producto)}
                   >
-                    <option value="SUMA">Suma (sobraban unidades)</option>
-                    <option value="RESTA">Resta (faltaban unidades)</option>
-                  </select>
-                </>
-              )}
+                    <td>{producto.nombre}</td>
+                    <td>
+                      {producto.controla_stock ? producto.stock_actual : '—'}
+                      <EtiquetaProvisional visible={provisional && producto.controla_stock} />
+                    </td>
+                    <td>{producto.controla_stock ? producto.stock_minimo : '—'}</td>
+                    <td>
+                      {producto.alerta_stock_minimo && (
+                        <span className="insignia-alerta-stock">Stock mínimo</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {stock.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="texto-vacio">No hay productos que coincidan con el filtro.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
 
-              <label htmlFor="ajuste-cantidad">Cantidad</label>
-              <ContadorCantidad id="ajuste-cantidad" valor={cantidadAjuste} onCambiar={setCantidadAjuste} />
-              {erroresAjuste.cantidad && (
-                <p className="mensaje-error-campo">{erroresAjuste.cantidad}</p>
-              )}
-
-              <label htmlFor="ajuste-motivo">Motivo</label>
-              <input
-                id="ajuste-motivo"
-                value={motivoAjuste}
-                onChange={(evento) => setMotivoAjuste(evento.target.value)}
-                required
-              />
-              {erroresAjuste.motivo && (
-                <p className="mensaje-error-campo">{erroresAjuste.motivo}</p>
-              )}
-
-              {errorAjuste && (
-                <p className="mensaje-error" role="alert">
-                  {errorAjuste}
-                </p>
-              )}
-
-              <div className="acciones-formulario">
-                <button type="submit" disabled={guardandoAjuste}>
-                  {guardandoAjuste ? 'Registrando…' : 'Registrar ajuste'}
+          {productoSeleccionado && (
+            <section className="formulario-panel panel-historial">
+              <div className="encabezado-seccion">
+                <h3>Historial — {productoSeleccionado.nombre}</h3>
+                <button
+                  type="button"
+                  className="boton-secundario"
+                  onClick={() => setProductoSeleccionado(null)}
+                >
+                  Cerrar
                 </button>
               </div>
-            </form>
+
+              <table className="tabla-productos">
+                <thead>
+                  <tr>
+                    <th>Tipo</th>
+                    <th>Cantidad</th>
+                    <th>Fecha</th>
+                    <th>Motivo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historial.map((movimiento) => (
+                    <tr key={movimiento.id}>
+                      <td>{movimiento.tipo}{movimiento.sentido ? ` (${movimiento.sentido})` : ''}</td>
+                      <td>{movimiento.cantidad}</td>
+                      <td>{movimiento.fecha}</td>
+                      <td>{movimiento.motivo ?? '—'}</td>
+                    </tr>
+                  ))}
+                  {historial.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="texto-vacio">Sin movimientos registrados.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </section>
           )}
-        </section>
-      )}
+        </div>
+
+        {/* En escritorio, columna fija a la derecha; en celular, hoja que abre el botón. */}
+        <div
+          className={`inventario-movimiento ${hojaAbierta ? 'inventario-movimiento-abierta' : ''}`}
+          onClick={() => setHojaAbierta(false)}
+        >
+          <div className="inventario-movimiento-contenido" onClick={(evento) => evento.stopPropagation()}>
+            <div className="inventario-movimiento-cerrar">
+              <button type="button" className="boton-secundario" onClick={() => setHojaAbierta(false)}>
+                Cerrar
+              </button>
+            </div>
+            <PanelMovimientoInventario
+              esAdmin={esAdmin}
+              productoIdInicial={productoSeleccionado?.controla_stock ? productoSeleccionado.id : null}
+              onRegistrado={alRegistrar}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

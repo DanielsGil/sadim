@@ -128,7 +128,8 @@ export function Layout() {
         {estadoInactividad === 'EXPIRADA_PENDIENTE' && (
           <p className="aviso-inactividad" role="alert">
             La sesión expiró por inactividad. No se cierra todavía porque no hay conexión o quedan
-            operaciones sin sincronizar; se cerrará sola apenas todo quede sincronizado.
+            operaciones sin sincronizar. Si sigues trabajando, la sesión continúa; si no, se cerrará
+            apenas haya conexión y todo quede sincronizado.
           </p>
         )}
         <Outlet />

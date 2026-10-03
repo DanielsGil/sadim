@@ -13,7 +13,8 @@ export const INACTIVIDAD_SESION = {
 /**
  * ACTIVA: todo normal. AVISO: falta un minuto; cualquier interacción lo cancela.
  * EXPIRADA_PENDIENTE: se cumplió el tiempo pero no se pudo cerrar (sin
- * conexión o con operaciones en la cola, D21/D23); se reintenta hasta poder.
+ * conexión o con operaciones en la cola, D21/D23); se reintenta hasta poder,
+ * salvo que el usuario vuelva a interactuar (E-15): ahí la cuenta empieza de nuevo.
  */
 export type EstadoInactividad = 'ACTIVA' | 'AVISO' | 'EXPIRADA_PENDIENTE'
 
@@ -65,10 +66,13 @@ export class TemporizadorInactividad {
     this.limpiar()
   }
 
-  /** Cualquier interacción del usuario reinicia la cuenta y cancela el aviso. */
+  /**
+   * Cualquier interacción del usuario reinicia la cuenta y cancela el aviso,
+   * también después de expirar (E-15): un operador que sigue vendiendo sin
+   * conexión no debe perder la sesión a mitad de una venta cuando la cola se vacíe.
+   */
   registrarActividad(): void {
-    // Una vez expirada, la sesión se cierra apenas se pueda: la actividad no la revive.
-    if (this.detenido || this.estado === 'EXPIRADA_PENDIENTE') return
+    if (this.detenido) return
     this.programar()
   }
 

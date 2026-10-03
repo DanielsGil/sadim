@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { listarCategorias, listarProductos } from '../api/catalogo'
 import { obtenerConfiguracionPagos } from '../api/configuracion'
@@ -13,9 +13,9 @@ import {
   quitarDetalle,
 } from '../api/ventas'
 import { AvisoCopiaLocal } from '../componentes/AvisoLocal'
-import { ContadorCantidad } from '../componentes/ContadorCantidad'
+import { sumarABandeja, unidadesEnBandeja, type ItemBandeja } from '../componentes/bandeja'
+import { BandejaSeleccion } from '../componentes/BandejaSeleccion'
 import { SelectorProductos } from '../componentes/SelectorProductos'
-import { useAcumuladorClics } from '../componentes/useAcumuladorClics'
 import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { Categoria, ConfiguracionPago, DetalleVenta, Mesa, MedioPago, Producto, Venta } from '../tipos/dominio'
 
@@ -82,18 +82,12 @@ export function DetalleSesion() {
   const [medioPago, setMedioPago] = useState<MedioPago | ''>('')
   const [confirmandoCancelacion, setConfirmandoCancelacion] = useState(false)
   const [procesando, setProcesando] = useState(false)
-  // E-10: envíos de líneas en curso. Se encadenan uno tras otro para que dos
-  // productos seguidos no intenten abrir la sesión dos veces (D26).
-  const [enviando, setEnviando] = useState(0)
-  const colaEnviosRef = useRef<Promise<void>>(Promise.resolve())
-  const ventaRef = useRef<Venta | null>(null)
-  const falloEnvioRef = useRef(false)
-  const abandonadaRef = useRef(false)
-
-  function fijarVenta(nueva: Venta | null) {
-    ventaRef.current = nueva
-    setVenta(nueva)
-  }
+  // E-12: bandeja de selección. Nunca se envía sola: solo con «Agregar a la mesa».
+  const [bandeja, setBandeja] = useState<ItemBandeja[]>([])
+  const [agregando, setAgregando] = useState(false)
+  // E-12: con productos en la bandeja, salir o cerrar la cuenta primero pregunta.
+  const [salidaPendiente, setSalidaPendiente] = useState<string | null>(null)
+  const [confirmandoCierreConBandeja, setConfirmandoCierreConBandeja] = useState(false)
 
   useEffect(() => {
     if (!mesaId) return
@@ -106,7 +100,7 @@ export function DetalleSesion() {
       listarMesas({ activa: true }),
     ])
       .then(([ventas, listaCategorias, listaProductos, pagosObtenidos, mesas]) => {
-        fijarVenta(ventas[0] ?? null)
+        setVenta(ventas[0] ?? null)
         setCategorias(listaCategorias)
         setProductos(listaProductos.filter((producto) => producto.activo))
         setPagos(pagosObtenidos)
@@ -117,6 +111,34 @@ export function DetalleSesion() {
       })
       .finally(() => setCargando(false))
   }, [mesaId])
+
+  // E-12: con productos en la bandeja, un clic en cualquier enlace del menú o
+  // de la app no navega directo: primero pregunta. Recargar o cerrar la
+  // pestaña muestra el aviso del navegador. Nunca se envía nada solo.
+  const hayBandeja = bandeja.length > 0
+  useEffect(() => {
+    if (!hayBandeja) return
+    const alHacerClic = (evento: MouseEvent) => {
+      const objetivo = evento.target as Element | null
+      const enlace = objetivo?.closest?.('a[href]') as HTMLAnchorElement | null
+      if (!enlace || enlace.target === '_blank') return
+      const destino = new URL(enlace.href)
+      if (destino.origin !== window.location.origin || destino.pathname === window.location.pathname) return
+      evento.preventDefault()
+      evento.stopPropagation()
+      setSalidaPendiente(`${destino.pathname}${destino.search}`)
+    }
+    const antesDeDescargar = (evento: BeforeUnloadEvent) => {
+      evento.preventDefault()
+      evento.returnValue = ''
+    }
+    document.addEventListener('click', alHacerClic, true)
+    window.addEventListener('beforeunload', antesDeDescargar)
+    return () => {
+      document.removeEventListener('click', alHacerClic, true)
+      window.removeEventListener('beforeunload', antesDeDescargar)
+    }
+  }, [hayBandeja])
 
   const mediosHabilitados: MedioPago[] = pagos
     ? [
@@ -130,67 +152,96 @@ export function DetalleSesion() {
     return productos.find((producto) => producto.id === productoId)?.nombre ?? '—'
   }
 
+  function agregarABandeja(producto: Producto) {
+    setBandeja((actual) => sumarABandeja(actual, producto))
+  }
+
+  function cambiarCantidadBandeja(productoId: string, cantidad: number) {
+    setBandeja((actual) =>
+      actual.map((item) => (item.producto.id === productoId ? { ...item, cantidad, error: undefined } : item)),
+    )
+  }
+
+  function quitarDeBandeja(productoId: string) {
+    setBandeja((actual) => actual.filter((item) => item.producto.id !== productoId))
+  }
+
+  function intentarSalir(destino: string) {
+    if (hayBandeja) {
+      setSalidaPendiente(destino)
+      return
+    }
+    navigate(destino)
+  }
+
   /**
-   * D26 (E-09, Lote de correcciones 3): tocar la mesa no abre la sesión —
-   * se abre al agregar el primer producto. Si la sesión no existe todavía,
-   * se envía (1) abrir sesión y (2) el detalle, en ese orden; si (2) falla,
-   * se cancela la sesión recién creada para no dejar la mesa OCUPADA vacía.
-   * Sin conexión, ambas quedan en la cola en ese mismo orden (D17).
-   * E-10: lo dispara el acumulador de clics, con la cantidad ya acumulada.
+   * E-12 + D26: envía la bandeja en orden, una petición por producto (el
+   * Contrato no admite varias líneas en un mismo POST de detalles). Si la
+   * sesión no existe, primero la abre. Si falla la PRIMERA línea de una
+   * sesión recién abierta, la cancela para no dejar la mesa OCUPADA vacía.
+   * Si falla una posterior, la sesión se queda con lo que sí entró y la
+   * bandeja conserva solo las líneas que fallaron, con su error.
+   * Sin conexión, todo va a la cola en este mismo orden (D17).
    */
-  async function enviarLinea(producto: Producto, cantidad: number) {
-    if (!mesaId || abandonadaRef.current) return
+  async function agregarALaMesa() {
+    if (!mesaId || bandeja.length === 0) return
     setError(null)
-    let ventaActual = ventaRef.current
+    setAgregando(true)
+    let ventaActual = venta
     let creadaEnEsteIntento = false
+    const fallidas: ItemBandeja[] = []
     try {
       if (!ventaActual) {
         try {
           ventaActual = await abrirSesion(mesaId)
         } catch (err) {
           if (err instanceof ErrorApi && err.code === 'MESA_OCUPADA') {
+            setBandeja([])
             setError(mensajeErrorApi(err, 'Otro dispositivo ya abrió esta mesa.'))
-            falloEnvioRef.current = true
-            abandonadaRef.current = true
             navigate('/ventas')
             return
           }
-          throw err
+          setError(mensajeErrorApi(err, 'No se pudo abrir la sesión.'))
+          return
         }
         creadaEnEsteIntento = true
-        fijarVenta(ventaActual)
+        setVenta(ventaActual)
       }
-      await agregarDetalle(ventaActual.id, producto.id, cantidad)
-      const ventas = await listarVentas({ mesaId, estado: 'ABIERTA' })
-      fijarVenta(ventas[0] ?? null)
-    } catch (err) {
-      falloEnvioRef.current = true
-      if (creadaEnEsteIntento && ventaActual) {
+
+      for (const [indice, item] of bandeja.entries()) {
         try {
-          await cancelarVenta(ventaActual.id)
-        } catch {
-          // Mejor esfuerzo: no ocultar el error original de agregarDetalle.
+          await agregarDetalle(ventaActual.id, item.producto.id, item.cantidad)
+        } catch (err) {
+          const mensaje = mensajeErrorApi(err, 'No se pudo agregar el producto.')
+          if (indice === 0 && creadaEnEsteIntento) {
+            try {
+              await cancelarVenta(ventaActual.id)
+            } catch {
+              // Mejor esfuerzo: no ocultar el error original de agregarDetalle.
+            }
+            setVenta(null)
+            // No entró nada: la bandeja queda completa, con el error en la primera línea.
+            setBandeja((actual) =>
+              actual.map((linea, i) => (i === 0 ? { ...linea, error: mensaje } : { ...linea, error: undefined })),
+            )
+            setError(mensaje)
+            return
+          }
+          fallidas.push({ ...item, error: mensaje })
         }
-        fijarVenta(null)
       }
-      setError(mensajeErrorApi(err, 'No se pudo agregar el producto.'))
+
+      setBandeja(fallidas)
+      if (fallidas.length > 0) {
+        setError('Algunos productos no se agregaron; quedaron en la bandeja con su error.')
+      }
+      const ventas = await listarVentas({ mesaId, estado: 'ABIERTA' })
+      setVenta(ventas[0] ?? null)
+    } catch (err) {
+      setError(mensajeErrorApi(err, 'No se pudo actualizar la sesión.'))
+    } finally {
+      setAgregando(false)
     }
-  }
-
-  const acumulador = useAcumuladorClics((producto, cantidad) => {
-    setEnviando((n) => n + 1)
-    colaEnviosRef.current = colaEnviosRef.current
-      .then(() => enviarLinea(producto, cantidad))
-      .finally(() => setEnviando((n) => n - 1))
-  })
-  const { pendiente } = acumulador
-
-  /** E-10: envía ya lo acumulado y espera los envíos en curso; false si alguno falló. */
-  async function esperarEnvios(): Promise<boolean> {
-    falloEnvioRef.current = false
-    acumulador.confirmarYa()
-    await colaEnviosRef.current
-    return !falloEnvioRef.current
   }
 
   async function manejarQuitar(detalleId: string) {
@@ -200,7 +251,7 @@ export function DetalleSesion() {
     try {
       await quitarDetalle(venta.id, detalleId)
       const ventas = await listarVentas({ mesaId: venta.mesa_id ?? undefined, estado: 'ABIERTA' })
-      fijarVenta(ventas[0] ?? null)
+      setVenta(ventas[0] ?? null)
     } catch (err) {
       setError(mensajeErrorApi(err, 'No se pudo quitar el producto.'))
     } finally {
@@ -208,20 +259,22 @@ export function DetalleSesion() {
     }
   }
 
-  async function manejarCerrar() {
+  async function manejarCerrar(confirmadoSinBandeja = false) {
     if (!venta || !medioPago) {
       setError('Selecciona un medio de pago para cerrar.')
       return
     }
+    // E-12: lo que esté en la bandeja no se envía solo; se pregunta.
+    if (hayBandeja && !confirmadoSinBandeja) {
+      setConfirmandoCierreConBandeja(true)
+      return
+    }
+    setConfirmandoCierreConBandeja(false)
     setError(null)
     setProcesando(true)
     try {
-      // E-10: los clics que aún esperan su envío entran antes de cerrar.
-      if (!(await esperarEnvios()) || !ventaRef.current) {
-        setProcesando(false)
-        return
-      }
-      await cerrarVenta(ventaRef.current.id, medioPago)
+      await cerrarVenta(venta.id, medioPago)
+      setBandeja([])
       navigate('/ventas')
     } catch (err) {
       setError(mensajeErrorApi(err, 'No se pudo cerrar la sesión.'))
@@ -235,13 +288,8 @@ export function DetalleSesion() {
     setError(null)
     setProcesando(true)
     try {
-      acumulador.descartar()
-      await colaEnviosRef.current
-      if (!ventaRef.current) {
-        navigate('/ventas')
-        return
-      }
-      await cancelarVenta(ventaRef.current.id)
+      await cancelarVenta(venta.id)
+      setBandeja([])
       navigate('/ventas')
     } catch (err) {
       setError(mensajeErrorApi(err, 'No se pudo cancelar la sesión.'))
@@ -255,20 +303,26 @@ export function DetalleSesion() {
 
   // D22: cuando la escritura va a la cola (sin conexión o con cola pendiente) el servidor no
   // valida el stock al agregar; se advierte, sin bloquear (D24: el conflicto queda para el cierre).
-  const yaAgregada = (venta?.detalles ?? [])
-    .filter((detalle) => detalle.producto_id === pendiente?.producto.id)
-    .reduce((suma, detalle) => suma + Number(detalle.cantidad), 0)
-  const superaStockLocal =
-    provisional &&
-    !!pendiente?.producto.controla_stock &&
-    yaAgregada + pendiente.cantidad > pendiente.producto.stock_actual
-  const ocupado = procesando || enviando > 0
+  const bandejaConAvisos = bandeja.map((item) => {
+    const yaAgregada = (venta?.detalles ?? [])
+      .filter((detalle) => detalle.producto_id === item.producto.id)
+      .reduce((suma, detalle) => suma + Number(detalle.cantidad), 0)
+    const supera =
+      provisional && item.producto.controla_stock && yaAgregada + item.cantidad > item.producto.stock_actual
+    return supera
+      ? {
+          ...item,
+          aviso: 'Supera el stock que se ve en este dispositivo; puede generar un conflicto al sincronizar.',
+        }
+      : item
+  })
+  const ocupado = procesando || agregando
 
   return (
-    <div className="pagina-detalle-sesion">
+    <div className={`pagina-detalle-sesion ${hayBandeja ? 'con-bandeja' : ''}`}>
       <div className="encabezado-seccion">
         <h1>{mesa ? `Mesa ${mesa.numero}` : 'Sesión'}</h1>
-        <button type="button" className="boton-secundario" onClick={() => navigate('/ventas')}>
+        <button type="button" className="boton-secundario" onClick={() => intentarSalir('/ventas')}>
           Volver al mapa de mesas
         </button>
       </div>
@@ -335,34 +389,25 @@ export function DetalleSesion() {
 
       <section className="formulario-panel panel-selector-productos">
         <h3>Agregar producto</h3>
-        <SelectorProductos
-          categorias={categorias}
-          productos={productos}
-          onSeleccionar={acumulador.sumar}
-          acumulados={pendiente ? { [pendiente.producto.id]: pendiente.cantidad } : {}}
-        />
-
-        {pendiente && (
-          <>
-            <p className="campo-solo-lectura">
-              <strong>{pendiente.producto.nombre}</strong> — {pendiente.producto.precio_venta}
-            </p>
-            <label htmlFor="detalle-cantidad">Cantidad</label>
-            <ContadorCantidad id="detalle-cantidad" valor={pendiente.cantidad} onCambiar={acumulador.ajustar} />
-          </>
-        )}
-
-        {superaStockLocal && (
-          <p className="campo-solo-lectura">
-            La cantidad supera el stock que se ve en este dispositivo; puede generar un conflicto al
-            sincronizar. Puedes agregarla igual.
-          </p>
-        )}
-
-        <div className="acciones-formulario">
-          <button type="button" disabled={procesando || !pendiente} onClick={acumulador.confirmarYa}>
-            {enviando > 0 ? 'Agregando…' : 'Agregar'}
-          </button>
+        <div className="zona-seleccion">
+          <div className="zona-seleccion-selector">
+            <SelectorProductos
+              categorias={categorias}
+              productos={productos}
+              onSeleccionar={agregarABandeja}
+              acumulados={Object.fromEntries(bandeja.map((item) => [item.producto.id, item.cantidad]))}
+            />
+          </div>
+          <BandejaSeleccion
+            items={bandejaConAvisos}
+            onCambiarCantidad={cambiarCantidadBandeja}
+            onQuitar={quitarDeBandeja}
+            textoBoton="Agregar a la mesa"
+            textoProcesando="Agregando…"
+            onConfirmar={() => void agregarALaMesa()}
+            procesando={agregando}
+            deshabilitado={procesando}
+          />
         </div>
       </section>
 
@@ -391,11 +436,32 @@ export function DetalleSesion() {
               </p>
             )}
 
-            <div className="acciones-formulario">
-              <button type="button" disabled={procesando} onClick={() => void manejarCerrar()}>
-                Cerrar sesión
-              </button>
-            </div>
+            {confirmandoCierreConBandeja ? (
+              <div className="confirmacion-bandeja" role="alert">
+                <p>
+                  Hay {unidadesEnBandeja(bandeja)} producto(s) en la bandeja que no se han agregado a la
+                  mesa. ¿Cerrar la cuenta sin ellos?
+                </p>
+                <div className="acciones-formulario">
+                  <button
+                    type="button"
+                    className="boton-secundario"
+                    onClick={() => setConfirmandoCierreConBandeja(false)}
+                  >
+                    Volver
+                  </button>
+                  <button type="button" disabled={ocupado} onClick={() => void manejarCerrar(true)}>
+                    Cerrar sin agregarlos
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="acciones-formulario">
+                <button type="button" disabled={ocupado} onClick={() => void manejarCerrar()}>
+                  Cerrar sesión
+                </button>
+              </div>
+            )}
           </section>
 
           <section className="formulario-panel">
@@ -410,7 +476,7 @@ export function DetalleSesion() {
                   >
                     No
                   </button>
-                  <button type="button" disabled={procesando} onClick={() => void manejarCancelar()}>
+                  <button type="button" disabled={ocupado} onClick={() => void manejarCancelar()}>
                     Sí, cancelar sesión
                   </button>
                 </div>
@@ -426,6 +492,34 @@ export function DetalleSesion() {
             )}
           </section>
         </>
+      )}
+
+      {salidaPendiente && (
+        <div className="dialogo-fondo" role="presentation">
+          <div className="dialogo" role="alertdialog" aria-modal="true" aria-labelledby="dialogo-salida-titulo">
+            <h3 id="dialogo-salida-titulo">Productos sin agregar</h3>
+            <p>
+              Hay {unidadesEnBandeja(bandeja)} producto(s) en la bandeja que no se han agregado a la mesa.
+              Si sales, se descartan.
+            </p>
+            <div className="acciones-formulario">
+              <button type="button" className="boton-secundario" onClick={() => setSalidaPendiente(null)}>
+                Quedarme
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const destino = salidaPendiente
+                  setBandeja([])
+                  setSalidaPendiente(null)
+                  navigate(destino)
+                }}
+              >
+                Salir sin agregarlos
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

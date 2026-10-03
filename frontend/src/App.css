@@ -397,19 +397,22 @@
   border-radius: 999px;
 }
 
+/* E-14: barra de filtros — cada filtro con su etiqueta ENCIMA y separación
+   horizontal entre filtros, sin tocar el marcado de cada pantalla: la
+   cuadrícula de 2 filas acomoda etiqueta/campo por columnas en orden. */
 .filtros-productos {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-rows: auto auto;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, max-content);
+  justify-content: start;
+  column-gap: 16px;
+  row-gap: 6px;
   margin-bottom: 16px;
 }
 
-.filtros-productos select {
-  font: inherit;
-  padding: 6px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
+.filtros-productos label {
+  margin: 0;
 }
 
 .tabla-productos {
@@ -425,6 +428,10 @@
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
+}
+
+.tabla-productos tr.fila-seleccionada {
+  background: var(--accent-bg);
 }
 
 .tabla-productos tr.fila-inactiva {
@@ -486,19 +493,60 @@
   border-radius: 10px;
 }
 
-.formulario-panel label {
+.formulario-panel form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* E-14: estilo común de formularios para toda la app (dentro del shell; el
+   login tiene el suyo). La etiqueta va encima del campo con separación fija,
+   y select, fecha, número, texto y textarea comparten alto, borde y fondo —
+   nada del estilo nativo del navegador. Solo presentación. */
+.app-shell :where(label:not(.etiqueta-checkbox):not(:has(input[type='checkbox'], input[type='radio']))) {
+  display: block;
+  margin: 12px 0 6px;
   font-size: 14px;
   font-weight: 600;
   color: var(--text-h);
 }
 
-.formulario-panel input,
-.formulario-panel select {
+.formulario-panel > label:first-of-type,
+.formulario-panel form > label:first-of-type {
+  margin-top: 4px;
+}
+
+.app-shell :where(input:not([type='checkbox']):not([type='radio']), select, textarea) {
   font: inherit;
+  font-size: 16px;
+  min-height: 40px;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  margin-bottom: 6px;
+  background-color: var(--bg);
+  color: var(--text-h);
+  box-sizing: border-box;
+  max-width: 100%;
+  margin: 0;
+}
+
+.app-shell :where(textarea) {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.app-shell :where(select) {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23888' stroke-width='1.6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+
+.app-shell :where(input, select, textarea):focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 1px;
 }
 
 .etiqueta-checkbox {
@@ -676,7 +724,7 @@
   opacity: 0.75;
 }
 
-/* E-10: unidades acumuladas por clics, visibles de inmediato en la tarjeta. */
+/* E-12: unidades del producto en la bandeja, visibles de inmediato en la tarjeta. */
 .tarjeta-producto-selector {
   position: relative;
 }
@@ -705,9 +753,263 @@
   font-size: 14px;
 }
 
-/* El selector de productos necesita más ancho que un formulario angosto
-   común para que quepan varias tarjetas por fila en escritorio. */
+
+/* E-13: Inventario e ingreso de mercancía en una sola pantalla. Escritorio
+   (>=1024px): dos columnas, existencias (más ancha) + panel de movimiento.
+   Debajo de 1024px: la tabla ocupa la pantalla y el panel se abre como hoja
+   desde el botón «Registrar movimiento». */
+.inventario-columnas {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.inventario-existencias {
+  min-width: 0;
+}
+
+.panel-movimiento {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  box-sizing: border-box;
+}
+
+.formulario-movimiento {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.formulario-movimiento > label:first-of-type {
+  margin-top: 4px;
+}
+
+.pestanas {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--accent-bg);
+}
+
+.pestana {
+  flex: 1;
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-h);
+  cursor: pointer;
+}
+
+.pestana-activa {
+  background: var(--bg);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+@media (min-width: 1024px) {
+  .inventario-columnas {
+    grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr);
+  }
+
+  .boton-abrir-movimiento,
+  .inventario-movimiento-cerrar {
+    display: none;
+  }
+
+  .inventario-movimiento {
+    position: sticky;
+    top: 24px;
+  }
+}
+
+@media (max-width: 1023px) {
+  .inventario-movimiento {
+    display: none;
+  }
+
+  .inventario-movimiento-abierta {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(0, 0, 0, 0.4);
+  }
+
+  .inventario-movimiento-contenido {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: 85svh;
+    overflow-y: auto;
+    background: var(--bg);
+    border-radius: 16px 16px 0 0;
+    padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+    box-sizing: border-box;
+  }
+
+  .inventario-movimiento-contenido .panel-movimiento {
+    border: none;
+    padding: 8px 4px;
+  }
+
+  .inventario-movimiento-cerrar {
+    display: flex;
+    justify-content: flex-end;
+  }
+}
+
+/* E-12: bandeja de selección (sesión de mesa y venta rápida). Escritorio
+   (>=1024px): al lado del selector. Celular (<768px): fija abajo, encima de
+   la barra de navegación inferior. Entre ambos: debajo del selector. */
+.zona-seleccion {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.zona-seleccion-selector {
+  min-width: 0;
+}
+
+.bandeja-seleccion {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  box-sizing: border-box;
+}
+
+.bandeja-seleccion h3 {
+  margin: 0;
+}
+
+.bandeja-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bandeja-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bandeja-item-encabezado {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.bandeja-item-nombre {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.bandeja-item-controles {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bandeja-item-controles .contador-cantidad {
+  margin-bottom: 0;
+}
+
+.confirmacion-bandeja {
+  margin-top: 8px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #fff4d6;
+  color: #5c4400;
+  font-size: 14px;
+}
+
+.dialogo-fondo {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.dialogo {
+  width: 100%;
+  max-width: 400px;
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  box-sizing: border-box;
+}
+
+.dialogo h3 {
+  margin-top: 0;
+}
+
 .formulario-venta-rapida,
 .panel-selector-productos {
-  max-width: 640px;
+  max-width: 1000px;
+}
+
+@media (min-width: 1024px) {
+  .zona-seleccion {
+    grid-template-columns: minmax(0, 1fr) 300px;
+  }
+
+  .bandeja-seleccion {
+    position: sticky;
+    top: 16px;
+    max-height: calc(100svh - 32px);
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 767px) {
+  .bandeja-seleccion {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(60px + env(safe-area-inset-bottom));
+    z-index: 15;
+    max-height: 45svh;
+    overflow-y: auto;
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.12);
+  }
+
+  .bandeja-vacia {
+    display: none;
+  }
+
+  /* Espacio al final para que la bandeja fija no tape el contenido. */
+  .pagina-detalle-sesion.con-bandeja,
+  .formulario-venta-rapida:has(.bandeja-seleccion:not(.bandeja-vacia)) {
+    padding-bottom: 45svh;
+  }
 }

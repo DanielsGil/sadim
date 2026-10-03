@@ -5,7 +5,7 @@ export interface ElementoNavegacion {
   /**
    * Coincidencia exacta de ruta (NavLink `end`). Se calcula sola: un
    * elemento la necesita cuando su ruta es prefijo de la de OTRO elemento
-   * del menú (p. ej. "/inventario" de "/inventario/ingreso", o "/caja" de
+   * del menú (p. ej. "/caja" de
    * "/caja/cierre") — si no, React Router marca activos a los dos a la vez
    * (E-03). Cuando el prefijo compartido es con una ruta de DETALLE que no
    * está en el menú (p. ej. "/ventas/mesas/:id" o "/ordenes/:id"), el
@@ -55,13 +55,6 @@ export function useElementosNavegacion(): ElementoNavegacion[] {
       esAdmin && { to: '/mesas', etiqueta: 'Mesas', etiquetaCorta: 'Mesas', icono: '🍽️' },
     inventarioActivo &&
       { to: '/inventario', etiqueta: 'Inventario', etiquetaCorta: 'Stock', icono: '📦' },
-    inventarioActivo &&
-      {
-        to: '/inventario/ingreso',
-        etiqueta: 'Ingreso de mercancía',
-        etiquetaCorta: 'Ingreso',
-        icono: '📥',
-      },
     serviciosActivo &&
       { to: '/ordenes', etiqueta: 'Órdenes', etiquetaCorta: 'Órdenes', icono: '🧾' },
     finanzasActivo && { to: '/caja', etiqueta: 'Caja', etiquetaCorta: 'Caja', icono: '💵' },

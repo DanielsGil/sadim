@@ -1,27 +1,12 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState } from 'react'
 import { listarCategorias, listarProductos } from '../api/catalogo'
 import { obtenerConfiguracionPagos } from '../api/configuracion'
 import { mensajeErrorApi } from '../api/errorApi'
 import { crearVentaRapida } from '../api/ventas'
-import { ContadorCantidad } from './ContadorCantidad'
+import { BandejaSeleccion } from './BandejaSeleccion'
+import { sumarABandeja, unidadesEnBandeja, type ItemBandeja } from './bandeja'
 import { SelectorProductos } from './SelectorProductos'
-import { useAcumuladorClics } from './useAcumuladorClics'
 import type { Categoria, ConfiguracionPago, MedioPago, Producto, Venta } from '../tipos/dominio'
-
-interface ItemCarrito {
-  producto: Producto
-  cantidad: number
-}
-
-/** E-10: el carrito tiene una sola línea por producto; sumar otra vez el mismo acumula la cantidad. */
-function sumarAlCarrito(carrito: ItemCarrito[], producto: Producto, cantidad: number): ItemCarrito[] {
-  if (carrito.some((item) => item.producto.id === producto.id)) {
-    return carrito.map((item) =>
-      item.producto.id === producto.id ? { ...item, cantidad: item.cantidad + cantidad } : item,
-    )
-  }
-  return [...carrito, { producto, cantidad }]
-}
 
 const ETIQUETA_MEDIO_PAGO: Record<MedioPago, string> = {
   EFECTIVO: 'Efectivo',
@@ -29,7 +14,11 @@ const ETIQUETA_MEDIO_PAGO: Record<MedioPago, string> = {
   QR: 'QR',
 }
 
-/** Venta rápida de mostrador (CU-01, P-01, HU-012/HU-013/HU-014/HU-015). */
+/**
+ * Venta rápida de mostrador (CU-01, P-01, HU-012/HU-013/HU-014/HU-015).
+ * E-12: la bandeja de selección es el carrito (local hasta cobrar) y su
+ * botón es «Cobrar».
+ */
 export function FormularioVentaRapida({
   onGuardado,
   onCancelar,
@@ -40,10 +29,11 @@ export function FormularioVentaRapida({
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [productos, setProductos] = useState<Producto[]>([])
   const [pagos, setPagos] = useState<ConfiguracionPago | null>(null)
-  const [carrito, setCarrito] = useState<ItemCarrito[]>([])
+  const [carrito, setCarrito] = useState<ItemBandeja[]>([])
   const [medioPago, setMedioPago] = useState<MedioPago | ''>('')
   const [error, setError] = useState<string | null>(null)
   const [guardando, setGuardando] = useState(false)
+  const [confirmandoCancelar, setConfirmandoCancelar] = useState(false)
 
   useEffect(() => {
     listarCategorias().then(setCategorias)
@@ -61,27 +51,23 @@ export function FormularioVentaRapida({
       ]
     : []
 
-  // E-10: el carrito es local hasta enviar; los clics se juntan igual que en la sesión.
-  const acumulador = useAcumuladorClics((producto, cantidad) => {
-    setCarrito((actual) => sumarAlCarrito(actual, producto, cantidad))
-  })
-  const { pendiente } = acumulador
-
-  function quitarDelCarrito(indice: number) {
-    setCarrito((actual) => actual.filter((_, i) => i !== indice))
+  function agregarAlCarrito(producto: Producto) {
+    setCarrito((actual) => sumarABandeja(actual, producto))
   }
 
-  const totalEstimado = (pendiente ? sumarAlCarrito(carrito, pendiente.producto, pendiente.cantidad) : carrito).reduce(
-    (suma, item) => suma + item.producto.precio_venta * item.cantidad,
-    0,
-  )
+  function cambiarCantidad(productoId: string, cantidad: number) {
+    setCarrito((actual) =>
+      actual.map((item) => (item.producto.id === productoId ? { ...item, cantidad } : item)),
+    )
+  }
 
-  async function manejarEnvio(evento: FormEvent<HTMLFormElement>) {
-    evento.preventDefault()
+  function quitarDelCarrito(productoId: string) {
+    setCarrito((actual) => actual.filter((item) => item.producto.id !== productoId))
+  }
+
+  async function cobrar() {
     setError(null)
-    // E-10: los clics que aún esperan su segundo de agrupación también entran a la venta.
-    const items = pendiente ? sumarAlCarrito(carrito, pendiente.producto, pendiente.cantidad) : carrito
-    if (items.length === 0) {
+    if (carrito.length === 0) {
       setError('Agrega al menos un producto.')
       return
     }
@@ -89,13 +75,11 @@ export function FormularioVentaRapida({
       setError('Selecciona un medio de pago.')
       return
     }
-    acumulador.descartar()
-    setCarrito(items)
     setGuardando(true)
     try {
       const venta = await crearVentaRapida(
         medioPago,
-        items.map((item) => ({ producto_id: item.producto.id, cantidad: item.cantidad })),
+        carrito.map((item) => ({ producto_id: item.producto.id, cantidad: item.cantidad })),
       )
       onGuardado(venta)
     } catch (err) {
@@ -105,93 +89,89 @@ export function FormularioVentaRapida({
     }
   }
 
+  function manejarCancelar() {
+    if (carrito.length > 0 && !confirmandoCancelar) {
+      setConfirmandoCancelar(true)
+      return
+    }
+    onCancelar()
+  }
+
   return (
-    <form className="formulario-panel formulario-venta-rapida" onSubmit={manejarEnvio}>
-      <h3>Venta rápida</h3>
+    <form
+      className="formulario-panel formulario-venta-rapida"
+      // Enter en el buscador no debe cobrar: solo cobra el botón de la bandeja.
+      onSubmit={(evento) => evento.preventDefault()}
+    >
+      <div className="encabezado-seccion">
+        <h3>Venta rápida</h3>
+        <button type="button" className="boton-secundario" onClick={manejarCancelar}>
+          Cancelar
+        </button>
+      </div>
 
-      <label>Producto</label>
-      <SelectorProductos
-        categorias={categorias}
-        productos={productos}
-        onSeleccionar={acumulador.sumar}
-        acumulados={pendiente ? { [pendiente.producto.id]: pendiente.cantidad } : {}}
-      />
-
-      {pendiente && (
-        <div className="formulario-panel">
-          <p className="campo-solo-lectura">
-            <strong>{pendiente.producto.nombre}</strong> — {pendiente.producto.precio_venta}
+      {confirmandoCancelar && (
+        <div className="confirmacion-bandeja" role="alert">
+          <p>
+            Hay {unidadesEnBandeja(carrito)} producto(s) en el carrito. ¿Descartar la venta?
           </p>
-          <label htmlFor="venta-rapida-cantidad">Cantidad</label>
-          <ContadorCantidad id="venta-rapida-cantidad" valor={pendiente.cantidad} onCambiar={acumulador.ajustar} />
           <div className="acciones-formulario">
-            <button type="button" className="boton-secundario" onClick={acumulador.confirmarYa}>
-              Agregar al carrito
+            <button type="button" className="boton-secundario" onClick={() => setConfirmandoCancelar(false)}>
+              Seguir vendiendo
+            </button>
+            <button type="button" onClick={onCancelar}>
+              Descartar
             </button>
           </div>
         </div>
       )}
 
-      <ul className="lista-categorias">
-        {carrito.map((item, indice) => (
-          <li key={item.producto.id}>
-            <span>
-              {item.cantidad} × {item.producto.nombre}
-            </span>
-            <button type="button" className="boton-secundario" onClick={() => quitarDelCarrito(indice)}>
-              Quitar
-            </button>
-          </li>
-        ))}
-        {carrito.length === 0 && <li className="texto-vacio">Sin productos agregados.</li>}
-      </ul>
+      <div className="zona-seleccion">
+        <div className="zona-seleccion-selector">
+          <SelectorProductos
+            categorias={categorias}
+            productos={productos}
+            onSeleccionar={agregarAlCarrito}
+            acumulados={Object.fromEntries(carrito.map((item) => [item.producto.id, item.cantidad]))}
+          />
+        </div>
 
-      <p className="campo-solo-lectura">
-        Total estimado: <strong>{totalEstimado.toFixed(2)}</strong> (lo confirma el backend al registrar
-        la venta)
-      </p>
-
-      <label htmlFor="venta-rapida-medio-pago">Medio de pago</label>
-      <select
-        id="venta-rapida-medio-pago"
-        value={medioPago}
-        onChange={(evento) => setMedioPago(evento.target.value as MedioPago)}
-      >
-        <option value="">Selecciona uno</option>
-        {mediosHabilitados.map((medio) => (
-          <option key={medio} value={medio}>
-            {ETIQUETA_MEDIO_PAGO[medio]}
-          </option>
-        ))}
-      </select>
-
-      {(medioPago === 'TRANSFERENCIA' || medioPago === 'QR') && pagos?.nequi_llave && (
-        <p className="campo-solo-lectura">
-          Nequi {pagos.nequi_titular ?? ''}: <strong>{pagos.nequi_llave}</strong> — el cobro queda
-          pendiente de verificación, nunca como pagado.
-        </p>
-      )}
-
-      {error && (
-        <p className="mensaje-error" role="alert">
-          {error}
-        </p>
-      )}
-
-      <div className="acciones-formulario">
-        <button
-          type="button"
-          className="boton-secundario"
-          onClick={() => {
-            acumulador.descartar()
-            onCancelar()
-          }}
+        <BandejaSeleccion
+          items={carrito}
+          onCambiarCantidad={cambiarCantidad}
+          onQuitar={quitarDelCarrito}
+          textoBoton="Cobrar"
+          textoProcesando="Registrando…"
+          onConfirmar={() => void cobrar()}
+          procesando={guardando}
         >
-          Cancelar
-        </button>
-        <button type="submit" disabled={guardando}>
-          {guardando ? 'Registrando…' : 'Registrar venta'}
-        </button>
+          <label htmlFor="venta-rapida-medio-pago">Medio de pago</label>
+          <select
+            id="venta-rapida-medio-pago"
+            value={medioPago}
+            onChange={(evento) => setMedioPago(evento.target.value as MedioPago)}
+          >
+            <option value="">Selecciona uno</option>
+            {mediosHabilitados.map((medio) => (
+              <option key={medio} value={medio}>
+                {ETIQUETA_MEDIO_PAGO[medio]}
+              </option>
+            ))}
+          </select>
+
+          {(medioPago === 'TRANSFERENCIA' || medioPago === 'QR') && pagos?.nequi_llave && (
+            <p className="campo-solo-lectura">
+              Nequi {pagos.nequi_titular ?? ''}: <strong>{pagos.nequi_llave}</strong> — el cobro queda
+              pendiente de verificación, nunca como pagado.
+            </p>
+          )}
+
+          {error && (
+            <p className="mensaje-error" role="alert">
+              {error}
+            </p>
+          )}
+        </BandejaSeleccion>
       </div>
     </form>
   )

@@ -64,13 +64,34 @@ describe('D27: cierre de sesión por inactividad', () => {
     expect(cerrar).not.toHaveBeenCalled()
     expect(temporizador.estadoActual).toBe('EXPIRADA_PENDIENTE')
 
-    // La actividad no revive una sesión ya expirada, y sigue sin cerrar mientras haya cola.
-    temporizador.registrarActividad()
+    // Sin interacción, sigue esperando mientras haya cola; al vaciarse, cierra.
     await vi.advanceTimersByTimeAsync(5 * MINUTO)
     expect(cerrar).not.toHaveBeenCalled()
 
     red.pendientes = 0
     await vi.advanceTimersByTimeAsync(15 * 1000)
+    expect(cerrar).toHaveBeenCalledTimes(1)
+  })
+
+  it('E-15: la actividad después de expirar reinicia la cuenta; no cierra al vaciarse la cola', async () => {
+    const red = { enLinea: false, pendientes: 2 }
+    const { temporizador, cerrar } = crear(red)
+    temporizador.iniciar()
+
+    await vi.advanceTimersByTimeAsync(LIMITE)
+    expect(temporizador.estadoActual).toBe('EXPIRADA_PENDIENTE')
+
+    // El operador sigue vendiendo sin conexión; luego vuelve la red y la cola se vacía.
+    temporizador.registrarActividad()
+    expect(temporizador.estadoActual).toBe('ACTIVA')
+    red.enLinea = true
+    red.pendientes = 0
+    temporizador.reintentarAhora()
+    await vi.advanceTimersByTimeAsync(10 * MINUTO)
+    expect(cerrar).not.toHaveBeenCalled()
+
+    // Solo cierra cuando se cumplen las tres: 30 min sin interacción, conexión y cola vacía.
+    await vi.advanceTimersByTimeAsync(20 * MINUTO)
     expect(cerrar).toHaveBeenCalledTimes(1)
   })
 
