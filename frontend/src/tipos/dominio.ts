@@ -9,6 +9,13 @@ export interface Sesion {
   refresh_token: string
   usuario_id: string
   rol: Rol
+  /**
+   * E-16: el `username` que la persona escribió al iniciar sesión, guardado
+   * SOLO en el dispositivo para mostrar quién está conectado. El login del
+   * Contrato no devuelve el nombre y /api/usuarios/ es solo ADMIN; las
+   * sesiones guardadas antes de este cambio no lo tienen.
+   */
+  username?: string
 }
 
 export interface Categoria {

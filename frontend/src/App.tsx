@@ -5,7 +5,6 @@ import { RutaProtegida } from './componentes/RutaProtegida'
 import { RutaSoloAdmin } from './componentes/RutaSoloAdmin'
 import { Caja } from './paginas/Caja'
 import { Catalogo } from './paginas/Catalogo'
-import { CierreCaja } from './paginas/CierreCaja'
 import { Configuracion } from './paginas/Configuracion'
 import { DetalleOrden } from './paginas/DetalleOrden'
 import { DetalleSesion } from './paginas/DetalleSesion'
@@ -34,13 +33,14 @@ function App() {
           <Route path="/ordenes" element={<Ordenes />} />
           <Route path="/ordenes/:ordenId" element={<DetalleOrden />} />
           <Route path="/caja" element={<Caja />} />
+          {/* E-18: el cierre es una pestaña de Caja; la ruta vieja redirige. */}
+          <Route path="/caja/cierre" element={<Navigate to="/caja?pestana=cierre" replace />} />
           <Route path="/novedades" element={<Novedades />} />
           <Route element={<RutaSoloAdmin />}>
             <Route path="/catalogo" element={<Catalogo />} />
             <Route path="/mesas" element={<Mesas />} />
             <Route path="/usuarios" element={<Usuarios />} />
             <Route path="/configuracion" element={<Configuracion />} />
-            <Route path="/caja/cierre" element={<CierreCaja />} />
             <Route path="/dispositivos" element={<Dispositivos />} />
           </Route>
         </Route>

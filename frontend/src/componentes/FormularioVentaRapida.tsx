@@ -4,8 +4,9 @@ import { obtenerConfiguracionPagos } from '../api/configuracion'
 import { mensajeErrorApi } from '../api/errorApi'
 import { crearVentaRapida } from '../api/ventas'
 import { BandejaSeleccion } from './BandejaSeleccion'
-import { sumarABandeja, unidadesEnBandeja, type ItemBandeja } from './bandeja'
+import { sumarABandeja, unidadesEnBandeja } from './bandeja'
 import { SelectorProductos } from './SelectorProductos'
+import { useBandejaPersistente } from './useBandejaPersistente'
 import type { Categoria, ConfiguracionPago, MedioPago, Producto, Venta } from '../tipos/dominio'
 
 const ETIQUETA_MEDIO_PAGO: Record<MedioPago, string> = {
@@ -29,7 +30,8 @@ export function FormularioVentaRapida({
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [productos, setProductos] = useState<Producto[]>([])
   const [pagos, setPagos] = useState<ConfiguracionPago | null>(null)
-  const [carrito, setCarrito] = useState<ItemBandeja[]>([])
+  // E-19: el carrito se guarda en el dispositivo y se restaura al volver a la venta rápida.
+  const [carrito, setCarrito, vaciarCarrito] = useBandejaPersistente('venta-rapida')
   const [medioPago, setMedioPago] = useState<MedioPago | ''>('')
   const [error, setError] = useState<string | null>(null)
   const [guardando, setGuardando] = useState(false)
@@ -81,6 +83,7 @@ export function FormularioVentaRapida({
         medioPago,
         carrito.map((item) => ({ producto_id: item.producto.id, cantidad: item.cantidad })),
       )
+      await vaciarCarrito()
       onGuardado(venta)
     } catch (err) {
       setError(mensajeErrorApi(err, 'No se pudo registrar la venta.'))
@@ -119,7 +122,12 @@ export function FormularioVentaRapida({
             <button type="button" className="boton-secundario" onClick={() => setConfirmandoCancelar(false)}>
               Seguir vendiendo
             </button>
-            <button type="button" onClick={onCancelar}>
+            <button
+              type="button"
+              onClick={() => {
+                void vaciarCarrito().then(onCancelar)
+              }}
+            >
               Descartar
             </button>
           </div>
@@ -141,6 +149,8 @@ export function FormularioVentaRapida({
           onCambiarCantidad={cambiarCantidad}
           onQuitar={quitarDelCarrito}
           textoBoton="Cobrar"
+          textoBotonCorto="Cobrar"
+          confirmarDesdeBarra={false}
           textoProcesando="Registrando…"
           onConfirmar={() => void cobrar()}
           procesando={guardando}

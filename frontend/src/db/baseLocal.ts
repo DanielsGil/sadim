@@ -170,3 +170,29 @@ export async function obtenerPropietarioCola(): Promise<string | undefined> {
 export async function borrarPropietarioCola(): Promise<void> {
   await baseLocal.meta.delete(CLAVE_PROPIETARIO_COLA)
 }
+
+/**
+ * E-19: bandeja de selección guardada en el dispositivo, una por mesa
+ * (`mesa:<id>`) y una para la venta rápida (`venta-rapida`), para que el
+ * botón «atrás» o cerrar la app no la pierdan. Vive en "meta" (sin cambiar
+ * el schema de Dexie) y nunca se envía al servidor por sí sola.
+ */
+const PREFIJO_BANDEJA = 'bandeja:'
+
+export async function guardarBandejaLocal(clave: string, items: unknown[]): Promise<void> {
+  if (items.length === 0) {
+    await baseLocal.meta.delete(`${PREFIJO_BANDEJA}${clave}`)
+    return
+  }
+  await baseLocal.meta.put({ clave: `${PREFIJO_BANDEJA}${clave}`, valor: items })
+}
+
+export async function obtenerBandejaLocal<T>(clave: string): Promise<T[]> {
+  const fila = await baseLocal.meta.get(`${PREFIJO_BANDEJA}${clave}`)
+  return (fila?.valor as T[] | undefined) ?? []
+}
+
+/** Al cerrar sesión se borran todas las bandejas (no la cola ni la copia local). */
+export async function borrarBandejasLocales(): Promise<void> {
+  await baseLocal.meta.where('clave').startsWith(PREFIJO_BANDEJA).delete()
+}

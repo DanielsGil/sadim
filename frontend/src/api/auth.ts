@@ -4,10 +4,11 @@ import { peticion } from './cliente'
 
 /** POST /api/auth/login/ (CU-17). Guarda la sesión en Dexie si es exitoso. */
 export async function iniciarSesion(username: string, password: string): Promise<Sesion> {
-  const sesion = await peticion<Sesion>('/auth/login/', {
+  const respuesta = await peticion<Sesion>('/auth/login/', {
     method: 'POST',
     body: JSON.stringify({ username, password }),
   })
+  const sesion: Sesion = { ...respuesta, username }
   await guardarSesion(sesion)
   return sesion
 }

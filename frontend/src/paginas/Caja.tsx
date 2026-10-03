@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   anularMovimiento,
   confirmarMovimiento,
@@ -9,6 +10,7 @@ import {
 import { obtenerConfiguracionPagos } from '../api/configuracion'
 import { mensajeErrorApi } from '../api/errorApi'
 import { AvisoCopiaLocal } from '../componentes/AvisoLocal'
+import { PanelCierreCaja } from '../componentes/PanelCierreCaja'
 import { useSesion } from '../contexto/SesionContext'
 import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { ConfiguracionPago, MedioPago, MovimientoCaja } from '../tipos/dominio'
@@ -25,11 +27,32 @@ const ETIQUETA_TIPO: Record<string, string> = {
   GASTO: 'Gasto',
 }
 
-/** Caja (CU-14, HU-029, HU-050): registrar gastos y confirmar/anular pagos pendientes. */
+type PestanaCaja = 'gastos' | 'pendientes' | 'resumen' | 'cierre'
+
+/**
+ * Caja (CU-14, CU-15, CU-20, HU-027..HU-029, HU-050). E-18: una sola
+ * sección con pestañas — «Gastos» y «Pagos pendientes» para ambos roles;
+ * «Resumen del día» y «Cierre» solo ADMIN (antes /caja/cierre, que ahora
+ * redirige aquí con ?pestana=cierre). Los permisos reales siguen en el backend.
+ */
 export function Caja() {
   const { sesion } = useSesion()
   const esAdmin = sesion?.rol === 'ADMIN'
   const { enLinea } = useEstadoLocal()
+
+  const pestanas: Array<{ valor: PestanaCaja; etiqueta: string }> = [
+    { valor: 'gastos', etiqueta: 'Gastos' },
+    { valor: 'pendientes', etiqueta: 'Pagos pendientes' },
+    ...(esAdmin
+      ? [
+          { valor: 'resumen' as const, etiqueta: 'Resumen del día' },
+          { valor: 'cierre' as const, etiqueta: 'Cierre' },
+        ]
+      : []),
+  ]
+  const [parametros, setParametros] = useSearchParams()
+  const pedida = parametros.get('pestana')
+  const pestana: PestanaCaja = pestanas.some((p) => p.valor === pedida) ? (pedida as PestanaCaja) : 'gastos'
 
   const [pagos, setPagos] = useState<ConfiguracionPago | null>(null)
   const [medioPago, setMedioPago] = useState<MedioPago | ''>('')
@@ -130,6 +153,22 @@ export function Caja() {
       <h1>Caja</h1>
       <AvisoCopiaLocal enLinea={enLinea} />
 
+      <div className="pestanas pestanas-caja" role="tablist">
+        {pestanas.map((p) => (
+          <button
+            key={p.valor}
+            type="button"
+            role="tab"
+            aria-selected={pestana === p.valor}
+            className={`pestana ${pestana === p.valor ? 'pestana-activa' : ''}`}
+            onClick={() => setParametros({ pestana: p.valor }, { replace: true })}
+          >
+            {p.etiqueta}
+          </button>
+        ))}
+      </div>
+
+      {pestana === 'gastos' && (
       <section className="formulario-panel">
         <h3>Registrar gasto</h3>
         <form onSubmit={manejarGasto}>
@@ -180,8 +219,10 @@ export function Caja() {
           </div>
         </form>
       </section>
+      )}
 
-      <section className="formulario-panel">
+      {pestana === 'pendientes' && (
+      <section className="formulario-panel panel-pagos-pendientes">
         <h3>Pagos pendientes de verificación</h3>
         {errorPendientes && (
           <p className="mensaje-error" role="alert">
@@ -252,6 +293,9 @@ export function Caja() {
           </table>
         )}
       </section>
+      )}
+
+      {esAdmin && (pestana === 'resumen' || pestana === 'cierre') && <PanelCierreCaja vista={pestana} />}
     </div>
   )
 }

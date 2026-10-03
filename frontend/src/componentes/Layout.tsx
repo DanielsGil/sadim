@@ -27,6 +27,7 @@ export function Layout() {
   const navigate = useNavigate()
   const [errorCierre, setErrorCierre] = useState<string | null>(null)
   const [hojaAbierta, setHojaAbierta] = useState(false)
+  const [cuentaAbierta, setCuentaAbierta] = useState(false)
   const [estadoInactividad, setEstadoInactividad] = useState<EstadoInactividad>('ACTIVA')
   const cerrarSesionRef = useRef(cerrarSesion)
 
@@ -81,9 +82,13 @@ export function Layout() {
   const primarios = necesitaMas ? elementos.slice(0, 4) : elementos
   const restantes = necesitaMas ? elementos.slice(4) : []
 
+  const etiquetaRol = sesion?.rol === 'ADMIN' ? 'Administrador' : 'Operador'
+  const nombreUsuario = sesion?.username ?? 'Usuario'
+
   async function manejarCerrarSesion() {
     try {
       setErrorCierre(null)
+      // D21: con operaciones en la cola, cerrarSesion lanza el error que explica por qué.
       await cerrarSesion()
       navigate('/login', { replace: true })
     } catch (error) {
@@ -104,9 +109,8 @@ export function Layout() {
         </nav>
         <div className="barra-lateral-pie">
           <IndicadorConectividad />
-          <span className="rol-actual">
-            {sesion?.rol === 'ADMIN' ? 'Administrador' : 'Operador'}
-          </span>
+          <span className="usuario-actual">{nombreUsuario}</span>
+          <span className="rol-actual">{etiquetaRol}</span>
           {errorCierre && (
             <p className="mensaje-error" role="alert">
               {errorCierre}
@@ -117,6 +121,37 @@ export function Layout() {
           </button>
         </div>
       </aside>
+
+      {/* E-16: en celular, la cuenta (usuario, rol y «Cerrar sesión») vive en una
+          barra superior fija, siempre visible para ambos roles, sin depender de
+          cuántas secciones haya ni de si aparece «Más». */}
+      <header className="barra-superior-movil">
+        <span className="marca">SADIM</span>
+        <button
+          type="button"
+          className="boton-cuenta"
+          aria-expanded={cuentaAbierta}
+          aria-label="Cuenta"
+          onClick={() => setCuentaAbierta((abierta) => !abierta)}
+        >
+          <span aria-hidden="true">👤</span> {nombreUsuario}
+        </button>
+        {cuentaAbierta && (
+          <div className="panel-cuenta">
+            <strong className="usuario-actual">{nombreUsuario}</strong>
+            <span className="rol-actual">{etiquetaRol}</span>
+            <IndicadorConectividad />
+            {errorCierre && (
+              <p className="mensaje-error" role="alert">
+                {errorCierre}
+              </p>
+            )}
+            <button type="button" className="boton-secundario" onClick={manejarCerrarSesion}>
+              Cerrar sesión
+            </button>
+          </div>
+        )}
+      </header>
 
       <main className="contenido-principal">
         {estadoInactividad === 'AVISO' && (

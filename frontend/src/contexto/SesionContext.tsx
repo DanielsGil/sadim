@@ -2,7 +2,12 @@ import { createContext, use, useCallback, useEffect, useState, type ReactNode } 
 import { cerrarSesion as cerrarSesionApi, iniciarSesion as iniciarSesionApi } from '../api/auth'
 import { obtenerConfiguracionModulos } from '../api/configuracion'
 import { EVENTO_SESION_CERRADA } from '../api/eventosSesion'
-import { borrarSesion as borrarSesionLocal, obtenerPropietarioCola, obtenerSesion } from '../db/baseLocal'
+import {
+  borrarBandejasLocales,
+  borrarSesion as borrarSesionLocal,
+  obtenerPropietarioCola,
+  obtenerSesion,
+} from '../db/baseLocal'
 import { contarOperacionesPendientes, dispararSincronizacion } from '../sync/enrutador'
 import type { ConfiguracionModulo, Sesion } from '../tipos/dominio'
 
@@ -81,6 +86,8 @@ export function SesionProvider({ children }: { children: ReactNode }) {
       )
     }
     await cerrarSesionApi()
+    // E-19: las bandejas de selección guardadas se borran al cerrar sesión.
+    await borrarBandejasLocales()
     setSesion(null)
     setModulos(null)
   }

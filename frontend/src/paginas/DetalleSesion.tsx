@@ -16,6 +16,7 @@ import { AvisoCopiaLocal } from '../componentes/AvisoLocal'
 import { sumarABandeja, unidadesEnBandeja, type ItemBandeja } from '../componentes/bandeja'
 import { BandejaSeleccion } from '../componentes/BandejaSeleccion'
 import { SelectorProductos } from '../componentes/SelectorProductos'
+import { useBandejaPersistente } from '../componentes/useBandejaPersistente'
 import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { Categoria, ConfiguracionPago, DetalleVenta, Mesa, MedioPago, Producto, Venta } from '../tipos/dominio'
 
@@ -83,7 +84,8 @@ export function DetalleSesion() {
   const [confirmandoCancelacion, setConfirmandoCancelacion] = useState(false)
   const [procesando, setProcesando] = useState(false)
   // E-12: bandeja de selección. Nunca se envía sola: solo con «Agregar a la mesa».
-  const [bandeja, setBandeja] = useState<ItemBandeja[]>([])
+  // E-19: guardada en el dispositivo, una por mesa (el botón «atrás» no la pierde).
+  const [bandeja, setBandeja, vaciarBandeja] = useBandejaPersistente(mesaId ? `mesa:${mesaId}` : null)
   const [agregando, setAgregando] = useState(false)
   // E-12: con productos en la bandeja, salir o cerrar la cuenta primero pregunta.
   const [salidaPendiente, setSalidaPendiente] = useState<string | null>(null)
@@ -196,7 +198,7 @@ export function DetalleSesion() {
           ventaActual = await abrirSesion(mesaId)
         } catch (err) {
           if (err instanceof ErrorApi && err.code === 'MESA_OCUPADA') {
-            setBandeja([])
+            await vaciarBandeja()
             setError(mensajeErrorApi(err, 'Otro dispositivo ya abrió esta mesa.'))
             navigate('/ventas')
             return
@@ -274,7 +276,7 @@ export function DetalleSesion() {
     setProcesando(true)
     try {
       await cerrarVenta(venta.id, medioPago)
-      setBandeja([])
+      await vaciarBandeja()
       navigate('/ventas')
     } catch (err) {
       setError(mensajeErrorApi(err, 'No se pudo cerrar la sesión.'))
@@ -289,7 +291,7 @@ export function DetalleSesion() {
     setProcesando(true)
     try {
       await cancelarVenta(venta.id)
-      setBandeja([])
+      await vaciarBandeja()
       navigate('/ventas')
     } catch (err) {
       setError(mensajeErrorApi(err, 'No se pudo cancelar la sesión.'))
@@ -403,6 +405,7 @@ export function DetalleSesion() {
             onCambiarCantidad={cambiarCantidadBandeja}
             onQuitar={quitarDeBandeja}
             textoBoton="Agregar a la mesa"
+            textoBotonCorto="Agregar"
             textoProcesando="Agregando…"
             onConfirmar={() => void agregarALaMesa()}
             procesando={agregando}
@@ -510,9 +513,8 @@ export function DetalleSesion() {
                 type="button"
                 onClick={() => {
                   const destino = salidaPendiente
-                  setBandeja([])
                   setSalidaPendiente(null)
-                  navigate(destino)
+                  void vaciarBandeja().then(() => navigate(destino))
                 }}
               >
                 Salir sin agregarlos

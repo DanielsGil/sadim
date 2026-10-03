@@ -10,8 +10,12 @@ function fechaHoy(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-/** Cierre de caja (CU-15, CU-20, HU-027, HU-028) — solo ADMIN. */
-export function CierreCaja() {
+/**
+ * Resumen del día y cierre de caja (CU-15, CU-20, HU-027, HU-028) — solo
+ * ADMIN. E-18: ya no es una página aparte; son las pestañas «Resumen del
+ * día» (`vista="resumen"`) y «Cierre» (`vista="cierre"`) dentro de Caja.
+ */
+export function PanelCierreCaja({ vista }: { vista: 'resumen' | 'cierre' }) {
   const { enLinea } = useEstadoLocal()
   const [fecha, setFecha] = useState(fechaHoy())
   const [resumen, setResumen] = useState<ResumenCaja | null>(null)
@@ -66,9 +70,7 @@ export function CierreCaja() {
   }
 
   return (
-    <div className="pagina-cierre-caja">
-      <h1>Cierre de caja</h1>
-
+    <div className="panel-cierre-caja">
       <label htmlFor="cierre-fecha">Fecha</label>
       <input
         id="cierre-fecha"
@@ -83,7 +85,7 @@ export function CierreCaja() {
         </p>
       )}
 
-      {cargando ? (
+      {vista === 'resumen' && (cargando ? (
         <p className="cargando">Cargando resumen del día…</p>
       ) : (
         resumen && (
@@ -106,15 +108,22 @@ export function CierreCaja() {
             )}
           </section>
         )
+      ))}
+
+      {vista === 'cierre' && resumen && (
+        <p className="campo-solo-lectura">
+          Efectivo (ingresos) del día: <strong>{resumen.por_medio_pago.EFECTIVO}</strong>
+        </p>
       )}
 
-      {colaLocalPendiente > 0 && (
+      {vista === 'cierre' && colaLocalPendiente > 0 && (
         <p className="mensaje-error" role="alert">
           Hay {colaLocalPendiente} operación(es) de este dispositivo sin sincronizar (E-05): el cierre no se
           puede confirmar hasta que se apliquen. El arqueo se puede preparar y contar igual.
         </p>
       )}
 
+      {vista === 'cierre' && (
       <section className="formulario-panel">
         <h3>Arqueo</h3>
         <form onSubmit={manejarCierre}>
@@ -164,6 +173,7 @@ export function CierreCaja() {
           </div>
         </form>
       </section>
+      )}
     </div>
   )
 }
