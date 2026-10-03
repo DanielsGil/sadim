@@ -1,8 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { IndicadorConectividad } from './IndicadorConectividad'
 import { useElementosNavegacion } from './navegacion'
+import { INACTIVIDAD_SESION, TemporizadorInactividad, type EstadoInactividad } from '../contexto/inactividad'
 import { useSesion } from '../contexto/SesionContext'
+import { contarOperacionesPendientes } from '../sync/enrutador'
+
+const EVENTOS_ACTIVIDAD = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart', 'scroll'] as const
 
 /**
  * Estructura de escritorio con navegación lateral (criterio de diseño de los
@@ -23,6 +27,52 @@ export function Layout() {
   const navigate = useNavigate()
   const [errorCierre, setErrorCierre] = useState<string | null>(null)
   const [hojaAbierta, setHojaAbierta] = useState(false)
+  const [estadoInactividad, setEstadoInactividad] = useState<EstadoInactividad>('ACTIVA')
+  const cerrarSesionRef = useRef(cerrarSesion)
+
+  useEffect(() => {
+    cerrarSesionRef.current = cerrarSesion
+  })
+
+  // D27 (E-11): cierre por inactividad para ambos roles. Solo se cierra con
+  // conexión y con la cola vacía (D21/D23); cerrarSesion borra los tokens,
+  // nunca la cola ni la copia local.
+  useEffect(() => {
+    const temporizador = new TemporizadorInactividad({
+      puedeCerrar: async () => navigator.onLine && (await contarOperacionesPendientes()) === 0,
+      cerrar: async () => {
+        try {
+          await cerrarSesionRef.current()
+          navigate('/login', { replace: true })
+        } catch {
+          // Entró una operación a la cola justo ahora: se sigue contando.
+          temporizador.iniciar()
+        }
+      },
+      alCambiarEstado: setEstadoInactividad,
+    })
+    let ultimaActividad = 0
+    const alInteractuar = () => {
+      const ahora = Date.now()
+      if (ahora - ultimaActividad < 1000) return
+      ultimaActividad = ahora
+      temporizador.registrarActividad()
+    }
+    const alConectar = () => temporizador.reintentarAhora()
+
+    temporizador.iniciar()
+    for (const evento of EVENTOS_ACTIVIDAD) {
+      window.addEventListener(evento, alInteractuar, { passive: true, capture: true })
+    }
+    window.addEventListener('online', alConectar)
+    return () => {
+      temporizador.detener()
+      for (const evento of EVENTOS_ACTIVIDAD) {
+        window.removeEventListener(evento, alInteractuar, { capture: true })
+      }
+      window.removeEventListener('online', alConectar)
+    }
+  }, [navigate])
 
   // Máximo 5 elementos visibles a la vez en la barra inferior (E-01): si hay
   // más de 5 secciones en total, se muestran las primeras 4 y el resto pasa
@@ -69,6 +119,18 @@ export function Layout() {
       </aside>
 
       <main className="contenido-principal">
+        {estadoInactividad === 'AVISO' && (
+          <p className="aviso-inactividad" role="alert">
+            Por inactividad, la sesión se cerrará en {Math.round(INACTIVIDAD_SESION.avisoMs / 1000)}{' '}
+            segundos. Toca la pantalla para seguir trabajando.
+          </p>
+        )}
+        {estadoInactividad === 'EXPIRADA_PENDIENTE' && (
+          <p className="aviso-inactividad" role="alert">
+            La sesión expiró por inactividad. No se cierra todavía porque no hay conexión o quedan
+            operaciones sin sincronizar; se cerrará sola apenas todo quede sincronizado.
+          </p>
+        )}
         <Outlet />
       </main>
 

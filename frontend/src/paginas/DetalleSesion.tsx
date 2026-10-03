@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { listarCategorias, listarProductos } from '../api/catalogo'
 import { obtenerConfiguracionPagos } from '../api/configuracion'
@@ -15,13 +15,54 @@ import {
 import { AvisoCopiaLocal } from '../componentes/AvisoLocal'
 import { ContadorCantidad } from '../componentes/ContadorCantidad'
 import { SelectorProductos } from '../componentes/SelectorProductos'
+import { useAcumuladorClics } from '../componentes/useAcumuladorClics'
 import { useEstadoLocal } from '../sync/useEstadoLocal'
-import type { Categoria, ConfiguracionPago, Mesa, MedioPago, Producto, Venta } from '../tipos/dominio'
+import type { Categoria, ConfiguracionPago, DetalleVenta, Mesa, MedioPago, Producto, Venta } from '../tipos/dominio'
 
 const ETIQUETA_MEDIO_PAGO: Record<MedioPago, string> = {
   EFECTIVO: 'Efectivo',
   TRANSFERENCIA: 'Transferencia',
   QR: 'QR',
+}
+
+interface LineaAgrupada {
+  producto_id: string
+  cantidad: number
+  /** null si las líneas del producto tienen precios distintos (D19: precio enviado por el dispositivo). */
+  precio_unitario: number | null
+  subtotal: number
+  /** La línea más reciente del producto: «Quitar» la borra a ella (D11), una a la vez. */
+  ultima: DetalleVenta
+  lineas: number
+}
+
+/**
+ * E-10: SOLO presentación — agrupa las líneas del mismo producto mostrando la
+ * cantidad total. El backend sigue teniendo una DetalleVenta por envío; no se
+ * edita ninguna línea existente (Contrato sin cambios).
+ */
+function agruparPorProducto(detalles: DetalleVenta[]): LineaAgrupada[] {
+  const grupos = new Map<string, LineaAgrupada>()
+  for (const detalle of detalles) {
+    const grupo = grupos.get(detalle.producto_id)
+    if (!grupo) {
+      grupos.set(detalle.producto_id, {
+        producto_id: detalle.producto_id,
+        cantidad: Number(detalle.cantidad),
+        precio_unitario: detalle.precio_unitario,
+        subtotal: Number(detalle.subtotal),
+        ultima: detalle,
+        lineas: 1,
+      })
+      continue
+    }
+    grupo.cantidad += Number(detalle.cantidad)
+    grupo.subtotal += Number(detalle.subtotal)
+    if (String(grupo.precio_unitario) !== String(detalle.precio_unitario)) grupo.precio_unitario = null
+    grupo.ultima = detalle
+    grupo.lineas += 1
+  }
+  return [...grupos.values()]
 }
 
 /** Detalle de sesión dinámica (CU-03, CU-04, HU-016..HU-019, HU-048). */
@@ -38,11 +79,21 @@ export function DetalleSesion() {
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const [productoElegido, setProductoElegido] = useState<Producto | null>(null)
-  const [cantidad, setCantidad] = useState(1)
   const [medioPago, setMedioPago] = useState<MedioPago | ''>('')
   const [confirmandoCancelacion, setConfirmandoCancelacion] = useState(false)
   const [procesando, setProcesando] = useState(false)
+  // E-10: envíos de líneas en curso. Se encadenan uno tras otro para que dos
+  // productos seguidos no intenten abrir la sesión dos veces (D26).
+  const [enviando, setEnviando] = useState(0)
+  const colaEnviosRef = useRef<Promise<void>>(Promise.resolve())
+  const ventaRef = useRef<Venta | null>(null)
+  const falloEnvioRef = useRef(false)
+  const abandonadaRef = useRef(false)
+
+  function fijarVenta(nueva: Venta | null) {
+    ventaRef.current = nueva
+    setVenta(nueva)
+  }
 
   useEffect(() => {
     if (!mesaId) return
@@ -55,7 +106,7 @@ export function DetalleSesion() {
       listarMesas({ activa: true }),
     ])
       .then(([ventas, listaCategorias, listaProductos, pagosObtenidos, mesas]) => {
-        setVenta(ventas[0] ?? null)
+        fijarVenta(ventas[0] ?? null)
         setCategorias(listaCategorias)
         setProductos(listaProductos.filter((producto) => producto.activo))
         setPagos(pagosObtenidos)
@@ -85,12 +136,12 @@ export function DetalleSesion() {
    * se envía (1) abrir sesión y (2) el detalle, en ese orden; si (2) falla,
    * se cancela la sesión recién creada para no dejar la mesa OCUPADA vacía.
    * Sin conexión, ambas quedan en la cola en ese mismo orden (D17).
+   * E-10: lo dispara el acumulador de clics, con la cantidad ya acumulada.
    */
-  async function manejarAgregar() {
-    if (!productoElegido || !mesaId) return
+  async function enviarLinea(producto: Producto, cantidad: number) {
+    if (!mesaId || abandonadaRef.current) return
     setError(null)
-    setProcesando(true)
-    let ventaActual = venta
+    let ventaActual = ventaRef.current
     let creadaEnEsteIntento = false
     try {
       if (!ventaActual) {
@@ -99,32 +150,47 @@ export function DetalleSesion() {
         } catch (err) {
           if (err instanceof ErrorApi && err.code === 'MESA_OCUPADA') {
             setError(mensajeErrorApi(err, 'Otro dispositivo ya abrió esta mesa.'))
+            falloEnvioRef.current = true
+            abandonadaRef.current = true
             navigate('/ventas')
             return
           }
           throw err
         }
         creadaEnEsteIntento = true
-        setVenta(ventaActual)
+        fijarVenta(ventaActual)
       }
-      await agregarDetalle(ventaActual.id, productoElegido.id, cantidad)
+      await agregarDetalle(ventaActual.id, producto.id, cantidad)
       const ventas = await listarVentas({ mesaId, estado: 'ABIERTA' })
-      setVenta(ventas[0] ?? null)
-      setCantidad(1)
-      setProductoElegido(null)
+      fijarVenta(ventas[0] ?? null)
     } catch (err) {
+      falloEnvioRef.current = true
       if (creadaEnEsteIntento && ventaActual) {
         try {
           await cancelarVenta(ventaActual.id)
         } catch {
           // Mejor esfuerzo: no ocultar el error original de agregarDetalle.
         }
-        setVenta(null)
+        fijarVenta(null)
       }
       setError(mensajeErrorApi(err, 'No se pudo agregar el producto.'))
-    } finally {
-      setProcesando(false)
     }
+  }
+
+  const acumulador = useAcumuladorClics((producto, cantidad) => {
+    setEnviando((n) => n + 1)
+    colaEnviosRef.current = colaEnviosRef.current
+      .then(() => enviarLinea(producto, cantidad))
+      .finally(() => setEnviando((n) => n - 1))
+  })
+  const { pendiente } = acumulador
+
+  /** E-10: envía ya lo acumulado y espera los envíos en curso; false si alguno falló. */
+  async function esperarEnvios(): Promise<boolean> {
+    falloEnvioRef.current = false
+    acumulador.confirmarYa()
+    await colaEnviosRef.current
+    return !falloEnvioRef.current
   }
 
   async function manejarQuitar(detalleId: string) {
@@ -134,7 +200,7 @@ export function DetalleSesion() {
     try {
       await quitarDetalle(venta.id, detalleId)
       const ventas = await listarVentas({ mesaId: venta.mesa_id ?? undefined, estado: 'ABIERTA' })
-      setVenta(ventas[0] ?? null)
+      fijarVenta(ventas[0] ?? null)
     } catch (err) {
       setError(mensajeErrorApi(err, 'No se pudo quitar el producto.'))
     } finally {
@@ -150,7 +216,12 @@ export function DetalleSesion() {
     setError(null)
     setProcesando(true)
     try {
-      await cerrarVenta(venta.id, medioPago)
+      // E-10: los clics que aún esperan su envío entran antes de cerrar.
+      if (!(await esperarEnvios()) || !ventaRef.current) {
+        setProcesando(false)
+        return
+      }
+      await cerrarVenta(ventaRef.current.id, medioPago)
       navigate('/ventas')
     } catch (err) {
       setError(mensajeErrorApi(err, 'No se pudo cerrar la sesión.'))
@@ -164,7 +235,13 @@ export function DetalleSesion() {
     setError(null)
     setProcesando(true)
     try {
-      await cancelarVenta(venta.id)
+      acumulador.descartar()
+      await colaEnviosRef.current
+      if (!ventaRef.current) {
+        navigate('/ventas')
+        return
+      }
+      await cancelarVenta(ventaRef.current.id)
       navigate('/ventas')
     } catch (err) {
       setError(mensajeErrorApi(err, 'No se pudo cancelar la sesión.'))
@@ -179,12 +256,13 @@ export function DetalleSesion() {
   // D22: cuando la escritura va a la cola (sin conexión o con cola pendiente) el servidor no
   // valida el stock al agregar; se advierte, sin bloquear (D24: el conflicto queda para el cierre).
   const yaAgregada = (venta?.detalles ?? [])
-    .filter((detalle) => detalle.producto_id === productoElegido?.id)
-    .reduce((suma, detalle) => suma + detalle.cantidad, 0)
+    .filter((detalle) => detalle.producto_id === pendiente?.producto.id)
+    .reduce((suma, detalle) => suma + Number(detalle.cantidad), 0)
   const superaStockLocal =
     provisional &&
-    !!productoElegido?.controla_stock &&
-    yaAgregada + cantidad > productoElegido.stock_actual
+    !!pendiente?.producto.controla_stock &&
+    yaAgregada + pendiente.cantidad > pendiente.producto.stock_actual
+  const ocupado = procesando || enviando > 0
 
   return (
     <div className="pagina-detalle-sesion">
@@ -216,20 +294,21 @@ export function DetalleSesion() {
               </tr>
             </thead>
             <tbody>
-              {venta.detalles.map((detalle) => (
-                <tr key={detalle.id}>
-                  <td>{nombreProducto(detalle.producto_id)}</td>
-                  <td>{detalle.cantidad}</td>
-                  <td>{detalle.precio_unitario}</td>
-                  <td>{detalle.subtotal}</td>
+              {agruparPorProducto(venta.detalles).map((grupo) => (
+                <tr key={grupo.producto_id}>
+                  <td>{nombreProducto(grupo.producto_id)}</td>
+                  <td>{grupo.cantidad}</td>
+                  <td>{grupo.precio_unitario ?? 'Varios'}</td>
+                  <td>{grupo.subtotal.toFixed(2)}</td>
                   <td>
                     <button
                       type="button"
                       className="boton-secundario"
-                      disabled={procesando}
-                      onClick={() => void manejarQuitar(detalle.id)}
+                      disabled={ocupado}
+                      onClick={() => void manejarQuitar(grupo.ultima.id)}
+                      title={grupo.lineas > 1 ? 'Quita lo último que se agregó de este producto' : undefined}
                     >
-                      Quitar
+                      {grupo.lineas > 1 ? `Quitar últimos ${Number(grupo.ultima.cantidad)}` : 'Quitar'}
                     </button>
                   </td>
                 </tr>
@@ -256,15 +335,20 @@ export function DetalleSesion() {
 
       <section className="formulario-panel panel-selector-productos">
         <h3>Agregar producto</h3>
-        <SelectorProductos categorias={categorias} productos={productos} onSeleccionar={setProductoElegido} />
+        <SelectorProductos
+          categorias={categorias}
+          productos={productos}
+          onSeleccionar={acumulador.sumar}
+          acumulados={pendiente ? { [pendiente.producto.id]: pendiente.cantidad } : {}}
+        />
 
-        {productoElegido && (
+        {pendiente && (
           <>
             <p className="campo-solo-lectura">
-              <strong>{productoElegido.nombre}</strong> — {productoElegido.precio_venta}
+              <strong>{pendiente.producto.nombre}</strong> — {pendiente.producto.precio_venta}
             </p>
             <label htmlFor="detalle-cantidad">Cantidad</label>
-            <ContadorCantidad id="detalle-cantidad" valor={cantidad} onCambiar={setCantidad} />
+            <ContadorCantidad id="detalle-cantidad" valor={pendiente.cantidad} onCambiar={acumulador.ajustar} />
           </>
         )}
 
@@ -276,8 +360,8 @@ export function DetalleSesion() {
         )}
 
         <div className="acciones-formulario">
-          <button type="button" disabled={procesando || !productoElegido} onClick={() => void manejarAgregar()}>
-            Agregar
+          <button type="button" disabled={procesando || !pendiente} onClick={acumulador.confirmarYa}>
+            {enviando > 0 ? 'Agregando…' : 'Agregar'}
           </button>
         </div>
       </section>

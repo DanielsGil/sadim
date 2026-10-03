@@ -676,6 +676,35 @@
   opacity: 0.75;
 }
 
+/* E-10: unidades acumuladas por clics, visibles de inmediato en la tarjeta. */
+.tarjeta-producto-selector {
+  position: relative;
+}
+
+.tarjeta-producto-acumulado {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  min-width: 24px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* E-11 (D27): aviso de cierre de sesión por inactividad. */
+.aviso-inactividad {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #fff4d6;
+  color: #5c4400;
+  font-size: 14px;
+}
+
 /* El selector de productos necesita más ancho que un formulario angosto
    común para que quepan varias tarjetas por fila en escritorio. */
 .formulario-venta-rapida,

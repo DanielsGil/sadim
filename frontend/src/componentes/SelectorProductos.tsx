@@ -5,6 +5,8 @@ interface Props {
   categorias: Categoria[]
   productos: Producto[]
   onSeleccionar: (producto: Producto) => void
+  /** E-10: unidades acumuladas por producto (clics aún sin enviar), para mostrarlas en la tarjeta. */
+  acumulados?: Record<string, number>
 }
 
 /** Color de fondo derivado del id de la categoría (hash simple -> HSL). No
@@ -23,7 +25,7 @@ function colorCategoria(categoriaId: string): string {
  * categorías + tarjetas + buscador. Compartido entre la venta rápida y el
  * detalle de sesión para no duplicar el criterio.
  */
-export function SelectorProductos({ categorias, productos, onSeleccionar }: Props) {
+export function SelectorProductos({ categorias, productos, onSeleccionar, acumulados = {} }: Props) {
   const [categoriaId, setCategoriaId] = useState<string | null>(null)
   const [busqueda, setBusqueda] = useState('')
 
@@ -86,6 +88,11 @@ export function SelectorProductos({ categorias, productos, onSeleccionar }: Prop
             style={{ background: colorCategoria(producto.categoria_id) }}
             onClick={() => onSeleccionar(producto)}
           >
+            {(acumulados[producto.id] ?? 0) > 0 && (
+              <span className="tarjeta-producto-acumulado" aria-live="polite">
+                +{acumulados[producto.id]}
+              </span>
+            )}
             <span className="tarjeta-producto-nombre">{producto.nombre}</span>
             <span className="tarjeta-producto-precio">{producto.precio_venta}</span>
             {producto.controla_stock && (
