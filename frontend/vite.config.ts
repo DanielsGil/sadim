@@ -31,6 +31,9 @@ export default defineConfig({
         // Bloque 5b); el service worker solo cachea el shell estático para
         // que la app ABRA sin conexión.
         navigateFallback: 'index.html',
+        // B2 (F-10): las navegaciones a la API y al admin de Django van al
+        // servidor, no al index.html de la PWA (si no, /admin/ mostraba la app).
+        navigateFallbackDenylist: [/^\/api\//, /^\/admin\//],
         globPatterns: ['**/*.{js,css,html,svg}'],
       },
     }),
