@@ -4,14 +4,15 @@ import { TemporizadorInactividad, type EstadoInactividad } from './inactividad'
 const MINUTO = 60 * 1000
 const LIMITE = 30 * MINUTO
 
-function crear(estadoRed: { enLinea: boolean; pendientes: number }) {
+function crear(estadoRed: { enLinea: boolean; pendientes: number; servidor?: boolean }) {
   const estados: EstadoInactividad[] = []
   const cerrar = vi.fn()
   const temporizador = new TemporizadorInactividad({
     limiteMs: LIMITE,
     avisoMs: MINUTO,
     reintentoMs: 15 * 1000,
-    puedeCerrar: async () => estadoRed.enLinea && estadoRed.pendientes === 0,
+    puedeCerrar: async () =>
+      estadoRed.enLinea && estadoRed.pendientes === 0 && (estadoRed.servidor ?? true),
     cerrar,
     alCambiarEstado: (estado) => estados.push(estado),
   })
@@ -105,6 +106,70 @@ describe('D27: cierre de sesión por inactividad', () => {
 
     red.enLinea = true
     temporizador.reintentarAhora()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(cerrar).toHaveBeenCalledTimes(1)
+  })
+
+  it('F-19: con red y cola vacía, no cierra si el servidor no responde', async () => {
+    const red = { enLinea: true, pendientes: 0, servidor: false }
+    const { temporizador, cerrar } = crear(red)
+    temporizador.iniciar()
+
+    await vi.advanceTimersByTimeAsync(LIMITE + 2 * MINUTO)
+    expect(cerrar).not.toHaveBeenCalled()
+    expect(temporizador.estadoActual).toBe('EXPIRADA_PENDIENTE')
+  })
+
+  it('F-19: cuando el servidor vuelve a responder y la cola está vacía, cierra en el siguiente reintento', async () => {
+    const red = { enLinea: true, pendientes: 0, servidor: false }
+    const { temporizador, cerrar } = crear(red)
+    temporizador.iniciar()
+
+    await vi.advanceTimersByTimeAsync(LIMITE)
+    expect(temporizador.estadoActual).toBe('EXPIRADA_PENDIENTE')
+
+    red.servidor = true
+    await vi.advanceTimersByTimeAsync(15 * 1000)
+    expect(cerrar).toHaveBeenCalledTimes(1)
+  })
+
+  it('F-19 + E-15: la actividad durante la comprobación cancela el cierre, sin cierres dobles', async () => {
+    let responder: (puede: boolean) => void = () => {}
+    const puedeCerrar = vi.fn(
+      () =>
+        new Promise<boolean>((resolver) => {
+          responder = resolver
+        }),
+    )
+    const cerrar = vi.fn()
+    const temporizador = new TemporizadorInactividad({
+      limiteMs: LIMITE,
+      avisoMs: MINUTO,
+      reintentoMs: 15 * 1000,
+      puedeCerrar,
+      cerrar,
+      alCambiarEstado: () => {},
+    })
+    temporizador.iniciar()
+
+    // Vence la cuenta: empieza la comprobación (el servidor tarda en contestar).
+    await vi.advanceTimersByTimeAsync(LIMITE)
+    expect(puedeCerrar).toHaveBeenCalledTimes(1)
+
+    // Mientras tanto, nada lanza una segunda comprobación.
+    temporizador.reintentarAhora()
+    expect(puedeCerrar).toHaveBeenCalledTimes(1)
+
+    // El operador toca la pantalla y luego el servidor contesta que sí se podía.
+    temporizador.registrarActividad()
+    responder(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(cerrar).not.toHaveBeenCalled()
+    expect(temporizador.estadoActual).toBe('ACTIVA')
+
+    // La cuenta empezó de nuevo desde el toque.
+    await vi.advanceTimersByTimeAsync(LIMITE)
+    responder(true)
     await vi.advanceTimersByTimeAsync(0)
     expect(cerrar).toHaveBeenCalledTimes(1)
   })

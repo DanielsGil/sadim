@@ -2,7 +2,7 @@
  * D27 (E-11, Lote de correcciones 4): cierre de sesión por inactividad.
  * ÚNICA constante para cambiar los tiempos: 30 minutos sin interacción y
  * aviso 1 minuto antes. `reintentoMs` es cada cuánto se vuelve a intentar
- * el cierre si en el momento de expirar no se pudo (sin conexión o con cola).
+ * el cierre si en el momento de expirar no se pudo (sin conexión, con cola o sin respuesta del servidor).
  */
 export const INACTIVIDAD_SESION = {
   limiteMs: 30 * 60 * 1000,
@@ -13,7 +13,8 @@ export const INACTIVIDAD_SESION = {
 /**
  * ACTIVA: todo normal. AVISO: falta un minuto; cualquier interacción lo cancela.
  * EXPIRADA_PENDIENTE: se cumplió el tiempo pero no se pudo cerrar (sin
- * conexión o con operaciones en la cola, D21/D23); se reintenta hasta poder,
+ * conexión, con operaciones en la cola o con el servidor sin responder,
+ * D21/D23/F-19); se reintenta hasta poder,
  * salvo que el usuario vuelva a interactuar (E-15): ahí la cuenta empieza de nuevo.
  */
 export type EstadoInactividad = 'ACTIVA' | 'AVISO' | 'EXPIRADA_PENDIENTE'
@@ -22,7 +23,11 @@ interface Opciones {
   limiteMs?: number
   avisoMs?: number
   reintentoMs?: number
-  /** true si hay conexión y la cola de sincronización está vacía. */
+  /**
+   * true si se puede cerrar: hay red, la cola de sincronización está vacía y
+   * el servidor responde (F-19). Es asíncrona: mientras corre, el temporizador
+   * no lanza otra comprobación ni cierra si hubo actividad entretanto.
+   */
   puedeCerrar: () => Promise<boolean>
   /** Cierra la sesión (borra tokens, nunca la cola ni la copia local) y lleva al login. */
   cerrar: () => Promise<void> | void
@@ -33,7 +38,8 @@ interface Opciones {
  * Lógica pura del temporizador, sin React ni DOM, para poder probarla con
  * relojes simulados. Ejemplo en la cafetería: el operador deja la tablet en el
  * mostrador a las 3:00 p. m.; a las 3:29 aparece el aviso y a las 3:30 la app
- * vuelve al login — salvo que haya ventas sin sincronizar o no haya internet:
+ * vuelve al login — salvo que haya ventas sin sincronizar, no haya internet o
+ * el servidor no conteste (por ejemplo, wifi del local sin salida a internet):
  * en ese caso solo avisa y cierra apenas todo quede sincronizado.
  */
 export class TemporizadorInactividad {
@@ -44,6 +50,10 @@ export class TemporizadorInactividad {
   private estado: EstadoInactividad = 'ACTIVA'
   private temporizadores: ReturnType<typeof setTimeout>[] = []
   private detenido = true
+  /** F-19: hay una comprobación de `puedeCerrar` en curso; evita cierres dobles. */
+  private comprobando = false
+  /** Cambia con cada reinicio de la cuenta; si cambió durante la comprobación, no se cierra. */
+  private ciclo = 0
 
   constructor(opciones: Opciones) {
     this.opciones = opciones
@@ -78,13 +88,14 @@ export class TemporizadorInactividad {
 
   /** Para el evento 'online' o una cola que se vació: no esperar al siguiente reintento. */
   reintentarAhora(): void {
-    if (this.detenido || this.estado !== 'EXPIRADA_PENDIENTE') return
+    if (this.detenido || this.estado !== 'EXPIRADA_PENDIENTE' || this.comprobando) return
     this.limpiar()
     void this.intentarCerrar()
   }
 
   private programar(): void {
     this.limpiar()
+    this.ciclo += 1
     this.cambiarEstado('ACTIVA')
     this.temporizadores.push(
       setTimeout(() => this.cambiarEstado('AVISO'), Math.max(0, this.limiteMs - this.avisoMs)),
@@ -93,13 +104,20 @@ export class TemporizadorInactividad {
   }
 
   private async intentarCerrar(): Promise<void> {
+    if (this.comprobando) return
+    this.comprobando = true
+    const ciclo = this.ciclo
     let puede = false
     try {
       puede = await this.opciones.puedeCerrar()
     } catch {
       puede = false
+    } finally {
+      this.comprobando = false
     }
-    if (this.detenido) return
+    // E-15: si el usuario tocó la pantalla mientras se comprobaba (hasta 5 s
+    // esperando al servidor), la cuenta ya empezó de nuevo: no se cierra.
+    if (this.detenido || ciclo !== this.ciclo) return
     if (puede) {
       this.detener()
       await this.opciones.cerrar()

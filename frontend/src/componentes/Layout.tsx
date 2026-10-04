@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { servidorDisponible } from '../api/salud'
 import { IndicadorConectividad } from './IndicadorConectividad'
 import { useElementosNavegacion } from './navegacion'
 import { INACTIVIDAD_SESION, TemporizadorInactividad, type EstadoInactividad } from '../contexto/inactividad'
@@ -36,11 +37,13 @@ export function Layout() {
   })
 
   // D27 (E-11): cierre por inactividad para ambos roles. Solo se cierra con
-  // conexión y con la cola vacía (D21/D23); cerrarSesion borra los tokens,
-  // nunca la cola ni la copia local.
+  // red, con la cola vacía (D21/D23) y con el servidor respondiendo (F-19:
+  // navigator.onLine no basta con wifi sin internet o Render dormido);
+  // cerrarSesion borra los tokens, nunca la cola ni la copia local.
   useEffect(() => {
     const temporizador = new TemporizadorInactividad({
-      puedeCerrar: async () => navigator.onLine && (await contarOperacionesPendientes()) === 0,
+      puedeCerrar: async () =>
+        navigator.onLine && (await contarOperacionesPendientes()) === 0 && (await servidorDisponible()),
       cerrar: async () => {
         try {
           await cerrarSesionRef.current()
