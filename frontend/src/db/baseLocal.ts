@@ -80,6 +80,7 @@ const CLAVE_MODULOS = 'modulos'
 // Misma clave que ya escribe sync/reconciliacion.ts al final de cada sincronización.
 const CLAVE_PAGOS = 'configuracion_pagos'
 const CLAVE_PROPIETARIO_COLA = 'propietario_cola'
+const CLAVE_ULTIMA_ACTIVIDAD = 'ultima_actividad'
 
 /** Nunca localStorage: la sesión vive únicamente en IndexedDB vía Dexie. */
 export async function guardarSesion(sesion: Sesion): Promise<void> {
@@ -91,8 +92,22 @@ export async function obtenerSesion(): Promise<Sesion | undefined> {
   return fila?.valor as Sesion | undefined
 }
 
+/** Al terminar la sesión (por cualquier motivo) también se borra la última actividad (F-20). */
 export async function borrarSesion(): Promise<void> {
-  await baseLocal.meta.delete(CLAVE_SESION)
+  await baseLocal.meta.bulkDelete([CLAVE_SESION, CLAVE_ULTIMA_ACTIVIDAD])
+}
+
+/**
+ * F-20 (D27): momento de la última interacción del usuario, en milisegundos,
+ * para que la cuenta de inactividad sobreviva a cerrar y abrir la app.
+ */
+export async function guardarUltimaActividad(ms: number): Promise<void> {
+  await baseLocal.meta.put({ clave: CLAVE_ULTIMA_ACTIVIDAD, valor: ms })
+}
+
+export async function obtenerUltimaActividad(): Promise<number | undefined> {
+  const fila = await baseLocal.meta.get(CLAVE_ULTIMA_ACTIVIDAD)
+  return typeof fila?.valor === 'number' ? fila.valor : undefined
 }
 
 /**

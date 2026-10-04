@@ -19,6 +19,28 @@ export const INACTIVIDAD_SESION = {
  */
 export type EstadoInactividad = 'ACTIVA' | 'AVISO' | 'EXPIRADA_PENDIENTE'
 
+/**
+ * F-20: estado inicial de la cuenta al abrir la app con una sesión guardada,
+ * a partir de `meta.ultima_actividad`. Función pura para poder probarla.
+ * - Sin valor guardado (sesión de antes de F-20): la cuenta empieza ahora.
+ * - Valor en el futuro (reloj del equipo cambiado): se toma como ahora.
+ * - `vencida` = pasaron `limiteMs` o más: se aplica de inmediato la regla de
+ *   cierre (cerrar si se puede; si no, EXPIRADA_PENDIENTE).
+ * Ejemplo: el operador cerró la app a las 3:00 p. m. y la abre a las 3:10:
+ * le quedan 20 minutos. Si la abre a las 3:45, la cuenta ya venció.
+ */
+export function calcularInicioInactividad(
+  ultimaActividadMs: number | undefined,
+  ahoraMs: number,
+  limiteMs: number = INACTIVIDAD_SESION.limiteMs,
+): { transcurridoMs: number; vencida: boolean } {
+  if (ultimaActividadMs === undefined || !Number.isFinite(ultimaActividadMs)) {
+    return { transcurridoMs: 0, vencida: false }
+  }
+  const transcurridoMs = Math.max(0, ahoraMs - ultimaActividadMs)
+  return { transcurridoMs, vencida: transcurridoMs >= limiteMs }
+}
+
 interface Opciones {
   limiteMs?: number
   avisoMs?: number
@@ -66,9 +88,14 @@ export class TemporizadorInactividad {
     return this.estado
   }
 
-  iniciar(): void {
+  /**
+   * F-20: `transcurridoMs` es el tiempo que ya pasó sin actividad (por ejemplo,
+   * con la app cerrada); la cuenta sigue desde ahí. Si ya alcanzó el límite,
+   * se intenta cerrar de inmediato.
+   */
+  iniciar(transcurridoMs = 0): void {
     this.detenido = false
-    this.programar()
+    this.programar(transcurridoMs)
   }
 
   detener(): void {
@@ -93,14 +120,22 @@ export class TemporizadorInactividad {
     void this.intentarCerrar()
   }
 
-  private programar(): void {
+  private programar(transcurridoMs = 0): void {
     this.limpiar()
     this.ciclo += 1
     this.cambiarEstado('ACTIVA')
-    this.temporizadores.push(
-      setTimeout(() => this.cambiarEstado('AVISO'), Math.max(0, this.limiteMs - this.avisoMs)),
-      setTimeout(() => void this.intentarCerrar(), this.limiteMs),
-    )
+    const restanteMs = this.limiteMs - Math.max(0, transcurridoMs)
+    if (restanteMs <= 0) {
+      void this.intentarCerrar()
+      return
+    }
+    const hastaAvisoMs = restanteMs - this.avisoMs
+    if (hastaAvisoMs <= 0) {
+      this.cambiarEstado('AVISO')
+    } else {
+      this.temporizadores.push(setTimeout(() => this.cambiarEstado('AVISO'), hastaAvisoMs))
+    }
+    this.temporizadores.push(setTimeout(() => void this.intentarCerrar(), restanteMs))
   }
 
   private async intentarCerrar(): Promise<void> {

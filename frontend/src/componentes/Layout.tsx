@@ -3,11 +3,19 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { servidorDisponible } from '../api/salud'
 import { IndicadorConectividad } from './IndicadorConectividad'
 import { useElementosNavegacion } from './navegacion'
-import { INACTIVIDAD_SESION, TemporizadorInactividad, type EstadoInactividad } from '../contexto/inactividad'
+import {
+  calcularInicioInactividad,
+  INACTIVIDAD_SESION,
+  TemporizadorInactividad,
+  type EstadoInactividad,
+} from '../contexto/inactividad'
 import { useSesion } from '../contexto/SesionContext'
+import { guardarUltimaActividad, obtenerUltimaActividad } from '../db/baseLocal'
 import { contarOperacionesPendientes } from '../sync/enrutador'
 
 const EVENTOS_ACTIVIDAD = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart', 'scroll'] as const
+/** F-20: cada cuánto, como máximo, se escribe `meta.ultima_actividad` en Dexie. */
+const INTERVALO_GUARDADO_ACTIVIDAD_MS = 30 * 1000
 
 /**
  * Estructura de escritorio con navegación lateral (criterio de diseño de los
@@ -55,26 +63,55 @@ export function Layout() {
       },
       alCambiarEstado: setEstadoInactividad,
     })
+    let cancelado = false
     let ultimaActividad = 0
+    let ultimoGuardado = 0
     const alInteractuar = () => {
       const ahora = Date.now()
       if (ahora - ultimaActividad < 1000) return
       ultimaActividad = ahora
       temporizador.registrarActividad()
+      // F-20: la última actividad se guarda en Dexie como máximo cada 30 s.
+      if (ahora - ultimoGuardado >= INTERVALO_GUARDADO_ACTIVIDAD_MS) {
+        ultimoGuardado = ahora
+        void guardarUltimaActividad(ahora)
+      }
+    }
+    // F-20: al ocultar o cerrar la página se guarda el último toque exacto.
+    const alOcultar = () => {
+      if (ultimaActividad > 0) void guardarUltimaActividad(ultimaActividad)
+    }
+    const alCambiarVisibilidad = () => {
+      if (document.visibilityState === 'hidden') alOcultar()
     }
     const alConectar = () => temporizador.reintentarAhora()
 
-    temporizador.iniciar()
+    // F-20: la cuenta sigue desde la última actividad guardada (también con la
+    // app cerrada); si ya pasaron 30 min, se aplica de inmediato la regla de F-19.
+    void obtenerUltimaActividad()
+      .catch(() => undefined)
+      .then((guardada) => {
+        if (cancelado) return
+        const ahora = Date.now()
+        // Un toque mientras se leía Dexie también cuenta; el valor en el futuro lo resuelve la función pura.
+        const referencia = guardada === undefined ? undefined : Math.max(guardada, ultimaActividad)
+        temporizador.iniciar(calcularInicioInactividad(referencia, ahora).transcurridoMs)
+      })
     for (const evento of EVENTOS_ACTIVIDAD) {
       window.addEventListener(evento, alInteractuar, { passive: true, capture: true })
     }
     window.addEventListener('online', alConectar)
+    document.addEventListener('visibilitychange', alCambiarVisibilidad)
+    window.addEventListener('pagehide', alOcultar)
     return () => {
+      cancelado = true
       temporizador.detener()
       for (const evento of EVENTOS_ACTIVIDAD) {
         window.removeEventListener(evento, alInteractuar, { capture: true })
       }
       window.removeEventListener('online', alConectar)
+      document.removeEventListener('visibilitychange', alCambiarVisibilidad)
+      window.removeEventListener('pagehide', alOcultar)
     }
   }, [navigate])
 

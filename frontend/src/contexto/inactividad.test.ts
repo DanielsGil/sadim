@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { TemporizadorInactividad, type EstadoInactividad } from './inactividad'
+import { calcularInicioInactividad, TemporizadorInactividad, type EstadoInactividad } from './inactividad'
 
 const MINUTO = 60 * 1000
 const LIMITE = 30 * MINUTO
@@ -172,5 +172,53 @@ describe('D27: cierre de sesión por inactividad', () => {
     responder(true)
     await vi.advanceTimersByTimeAsync(0)
     expect(cerrar).toHaveBeenCalledTimes(1)
+  })
+
+  it('F-20: con 10 minutos ya transcurridos (app cerrada), cierra 20 minutos después de abrir', async () => {
+    const { temporizador, cerrar } = crear({ enLinea: true, pendientes: 0 })
+    temporizador.iniciar(10 * MINUTO)
+
+    await vi.advanceTimersByTimeAsync(19 * MINUTO)
+    expect(temporizador.estadoActual).toBe('AVISO')
+    expect(cerrar).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(MINUTO)
+    expect(cerrar).toHaveBeenCalledTimes(1)
+  })
+
+  it('F-20: con la cuenta ya vencida al abrir, aplica la regla de cierre de inmediato', async () => {
+    const red = { enLinea: true, pendientes: 2 }
+    const { temporizador, cerrar } = crear(red)
+    temporizador.iniciar(45 * MINUTO)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(cerrar).not.toHaveBeenCalled()
+    expect(temporizador.estadoActual).toBe('EXPIRADA_PENDIENTE')
+
+    // Sigue trabajando: cualquier toque reinicia la cuenta (E-15).
+    temporizador.registrarActividad()
+    expect(temporizador.estadoActual).toBe('ACTIVA')
+  })
+})
+
+describe('F-20: calcularInicioInactividad', () => {
+  const ahora = Date.UTC(2026, 9, 4, 15, 0)
+
+  it('sin valor guardado, la cuenta empieza ahora', () => {
+    expect(calcularInicioInactividad(undefined, ahora, LIMITE)).toEqual({ transcurridoMs: 0, vencida: false })
+  })
+
+  it('con menos de 30 minutos, la cuenta sigue desde la última actividad', () => {
+    expect(calcularInicioInactividad(ahora - 10 * MINUTO, ahora, LIMITE)).toEqual({
+      transcurridoMs: 10 * MINUTO,
+      vencida: false,
+    })
+  })
+
+  it('con 30 minutos o más, la cuenta está vencida', () => {
+    expect(calcularInicioInactividad(ahora - LIMITE, ahora, LIMITE).vencida).toBe(true)
+    expect(calcularInicioInactividad(ahora - 3 * LIMITE, ahora, LIMITE).vencida).toBe(true)
+  })
+
+  it('un valor en el futuro (reloj cambiado) se toma como ahora', () => {
+    expect(calcularInicioInactividad(ahora + 2 * LIMITE, ahora, LIMITE)).toEqual({ transcurridoMs: 0, vencida: false })
   })
 })
