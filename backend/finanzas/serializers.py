@@ -63,6 +63,20 @@ class CierreCajaSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class VistaPreviaCierreSerializer(serializers.Serializer):
+    """GET /api/cierres-caja/vista-previa/ (D28, extiende el Contrato v2 §11). Montos como números JSON."""
+
+    periodo_inicio = serializers.DateTimeField()
+    periodo_fin = serializers.DateTimeField()
+    total_ingresos_ventas = serializers.DecimalField(max_digits=12, decimal_places=2)
+    total_ingresos_abonos = serializers.DecimalField(max_digits=12, decimal_places=2)
+    total_gastos = serializers.DecimalField(max_digits=12, decimal_places=2)
+    total_neto = serializers.DecimalField(max_digits=12, decimal_places=2)
+    efectivo_esperado = serializers.DecimalField(max_digits=12, decimal_places=2)
+    por_medio_pago = serializers.DictField(child=serializers.DecimalField(max_digits=12, decimal_places=2))
+    cantidad_movimientos = serializers.IntegerField()
+
+
 class CrearCierreSerializer(serializers.Serializer):
     """POST /api/cierres-caja/ (Contrato v2 §11, CU-15)."""
 

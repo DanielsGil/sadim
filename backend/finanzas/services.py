@@ -189,15 +189,8 @@ def calcular_resumen(*, fecha):
 # HU-028 — cierre de caja
 # ---------------------------------------------------------------------------
 
-def crear_cierre(*, usuario, operation_id, fecha, efectivo_contado, observaciones=None):
-    """
-    Contrato v2 §11 (CU-15), D14: consolida los MovimientoCaja CONFIRMADO con
-    cierre_caja_id nulo cuya fecha sea <= periodo_fin (no un rango fijo).
-    select_for_update() sobre esos movimientos evita que dos cierres
-    simultáneos consoliden el mismo movimiento dos veces.
-    """
-    periodo_fin = timezone.now()
-
+def _calcular_periodo_inicio(periodo_fin):
+    """D14: periodo_fin del último cierre, o la fecha del primer movimiento."""
     ultimo_cierre = CierreCaja.objects.order_by('-periodo_fin').first()
     if ultimo_cierre is not None:
         periodo_inicio = ultimo_cierre.periodo_fin
@@ -210,19 +203,28 @@ def crear_cierre(*, usuario, operation_id, fecha, efectivo_contado, observacione
     # calcular periodo_fin aquí) pueden coincidir al microsegundo si el reloj
     # del sistema operativo no alcanza a avanzar entre una llamada y otra
     # (más notorio en Windows) — sin esta guarda, esa coincidencia hacía
-    # fallar el INSERT con el CHECK, y el except de abajo lo reportaba mal
-    # como CIERRE_YA_REALIZADO.
+    # fallar el INSERT con el CHECK, y el except de crear_cierre lo reportaba
+    # mal como CIERRE_YA_REALIZADO.
     if periodo_inicio is None or periodo_inicio >= periodo_fin:
         periodo_inicio = periodo_fin - timedelta(microseconds=1)
+    return periodo_inicio
 
-    movimientos = list(
-        MovimientoCaja.objects.select_for_update().filter(
-            estado_pago=MovimientoCaja.EstadoPago.CONFIRMADO,
-            cierre_caja__isnull=True,
-            fecha__lte=periodo_fin,
-        )
+
+def _movimientos_a_consolidar(periodo_fin):
+    """D14: CONFIRMADO, sin cierre todavía y con fecha <= periodo_fin (sin bloquear)."""
+    return MovimientoCaja.objects.filter(
+        estado_pago=MovimientoCaja.EstadoPago.CONFIRMADO,
+        cierre_caja__isnull=True,
+        fecha__lte=periodo_fin,
     )
 
+
+def calcular_totales_cierre(movimientos):
+    """
+    Totales de un cierre a partir de los movimientos a consolidar. Sin
+    persistencia ni bloqueos: lo usan crear_cierre y la vista previa (D28),
+    así ambos calculan EXACTAMENTE igual.
+    """
     def _suma(tipo):
         return sum((m.valor for m in movimientos if m.tipo == tipo), Decimal('0'))
 
@@ -239,7 +241,57 @@ def crear_cierre(*, usuario, operation_id, fecha, efectivo_contado, observacione
         (m.valor for m in movimientos if m.medio_pago == MovimientoCaja.MedioPago.EFECTIVO and m.tipo == MovimientoCaja.Tipo.GASTO),
         Decimal('0'),
     )
-    efectivo_esperado = ingresos_efectivo - gastos_efectivo
+    por_medio_pago = {
+        medio: sum(
+            (m.valor for m in movimientos if m.medio_pago == medio and m.tipo != MovimientoCaja.Tipo.GASTO),
+            Decimal('0'),
+        )
+        for medio in MovimientoCaja.MedioPago.values
+    }
+    return {
+        'total_ingresos_ventas': total_ingresos_ventas,
+        'total_ingresos_abonos': total_ingresos_abonos,
+        'total_gastos': total_gastos,
+        'total_neto': total_neto,
+        'efectivo_esperado': ingresos_efectivo - gastos_efectivo,
+        'por_medio_pago': por_medio_pago,
+        'cantidad_movimientos': len(movimientos),
+    }
+
+
+def calcular_vista_previa_cierre():
+    """
+    D28: lo que consolidaría un cierre si se registrara AHORA, sin guardar
+    nada ni bloquear filas (mismo criterio D14 que crear_cierre).
+    """
+    periodo_fin = timezone.now()
+    periodo_inicio = _calcular_periodo_inicio(periodo_fin)
+    movimientos = list(_movimientos_a_consolidar(periodo_fin))
+    return {
+        'periodo_inicio': periodo_inicio,
+        'periodo_fin': periodo_fin,
+        **calcular_totales_cierre(movimientos),
+    }
+
+
+def crear_cierre(*, usuario, operation_id, fecha, efectivo_contado, observaciones=None):
+    """
+    Contrato v2 §11 (CU-15), D14: consolida los MovimientoCaja CONFIRMADO con
+    cierre_caja_id nulo cuya fecha sea <= periodo_fin (no un rango fijo).
+    select_for_update() sobre esos movimientos evita que dos cierres
+    simultáneos consoliden el mismo movimiento dos veces.
+    """
+    periodo_fin = timezone.now()
+    periodo_inicio = _calcular_periodo_inicio(periodo_fin)
+
+    movimientos = list(_movimientos_a_consolidar(periodo_fin).select_for_update())
+
+    totales = calcular_totales_cierre(movimientos)
+    total_ingresos_ventas = totales['total_ingresos_ventas']
+    total_ingresos_abonos = totales['total_ingresos_abonos']
+    total_gastos = totales['total_gastos']
+    total_neto = totales['total_neto']
+    efectivo_esperado = totales['efectivo_esperado']
     diferencia = efectivo_contado - efectivo_esperado
 
     if diferencia != 0 and not observaciones:

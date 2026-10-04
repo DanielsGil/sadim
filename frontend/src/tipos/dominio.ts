@@ -329,3 +329,21 @@ export interface CierreCaja {
   observaciones: string | null
   fecha_creacion: string
 }
+
+/**
+ * GET /api/cierres-caja/vista-previa/ (D28, extiende el Contrato v2 §11):
+ * lo que consolidaría un cierre registrado ahora. La calcula el backend con el
+ * mismo criterio D14 que el cierre; no se guarda nada.
+ */
+export interface VistaPreviaCierre {
+  periodo_inicio: string
+  periodo_fin: string
+  total_ingresos_ventas: number
+  total_ingresos_abonos: number
+  total_gastos: number
+  total_neto: number
+  efectivo_esperado: number
+  /** Ingresos (sin gastos) que entrarían al cierre, por medio de pago. */
+  por_medio_pago: Record<MedioPago, number>
+  cantidad_movimientos: number
+}

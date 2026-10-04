@@ -395,6 +395,86 @@ class CierreTests(FinanzasAPITestCase):
         self.assertEqual(response.status_code, 403)
 
 
+class VistaPreviaCierreTests(FinanzasAPITestCase):
+    """D28 (A5, F-4/CU-15): GET /api/cierres-caja/vista-previa/ — solo ADMIN, sin guardar nada."""
+
+    URL = '/api/cierres-caja/vista-previa/'
+
+    def _gasto(self, valor, medio_pago='EFECTIVO'):
+        response = self.c_admin.post('/api/movimientos-caja/', {
+            'operation_id': str(uuid.uuid4()), 'tipo': 'GASTO', 'medio_pago': medio_pago,
+            'valor': valor, 'concepto': 'Bolsas',
+        }, format='json')
+        self.assertEqual(response.status_code, 201)
+
+    def test_vista_previa_coincide_con_lo_que_guarda_el_cierre(self):
+        self._crear_venta_confirmada(valor=Decimal('150000.00'), medio_pago='EFECTIVO')
+        _, movimiento_qr = self._crear_venta_confirmada(valor=Decimal('20000.00'), medio_pago='QR')
+        self.c_admin.patch(f'/api/movimientos-caja/{movimiento_qr.id}/confirmar/', {
+            'operation_id': str(uuid.uuid4()),
+        }, format='json')
+        self._gasto('3500.00')
+
+        previa = self.c_admin.get(self.URL)
+        self.assertEqual(previa.status_code, 200)
+        self.assertEqual(CierreCaja.objects.count(), 0)  # no guarda nada
+        cuerpo = previa.json()
+        for campo in ('total_ingresos_ventas', 'total_gastos', 'total_neto', 'efectivo_esperado'):
+            self.assertIsInstance(cuerpo[campo], (int, float))  # números JSON, no texto
+
+        cierre = self.c_admin.post('/api/cierres-caja/', {
+            'operation_id': str(uuid.uuid4()), 'fecha': timezone.localdate().isoformat(),
+            'efectivo_contado': str(previa.data['efectivo_esperado']),
+        }, format='json')
+        self.assertEqual(cierre.status_code, 201)
+        for campo in ('total_ingresos_ventas', 'total_ingresos_abonos', 'total_gastos', 'total_neto', 'efectivo_esperado'):
+            self.assertEqual(previa.data[campo], cierre.data[campo], campo)
+        self.assertEqual(cierre.data['diferencia'], Decimal('0'))
+        self.assertEqual(previa.data['por_medio_pago']['QR'], Decimal('20000.00'))
+        self.assertEqual(previa.data['cantidad_movimientos'], 3)
+
+    def test_operador_recibe_403(self):
+        response = self.c_operador.get(self.URL)
+        self.assertEqual(response.status_code, 403)
+        assert_error_shape(self, response)
+        self.assertEqual(response.data['code'], 'PERMISO_INSUFICIENTE')
+
+    def test_modulo_finanzas_desactivado_responde_403(self):
+        ConfiguracionModulo.objects.update(finanzas_activo=False)
+        response = self.c_admin.get(self.URL)
+        self.assertEqual(response.status_code, 403)
+        assert_error_shape(self, response)
+        self.assertEqual(response.data['code'], 'MODULO_DESACTIVADO')
+
+    def test_sin_movimientos_devuelve_ceros(self):
+        response = self.c_admin.get(self.URL)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['total_neto'], Decimal('0'))
+        self.assertEqual(response.data['efectivo_esperado'], Decimal('0'))
+        self.assertEqual(response.data['cantidad_movimientos'], 0)
+        self.assertEqual(
+            response.data['por_medio_pago'],
+            {'EFECTIVO': Decimal('0'), 'TRANSFERENCIA': Decimal('0'), 'QR': Decimal('0')},
+        )
+        self.assertLess(response.data['periodo_inicio'], response.data['periodo_fin'])
+
+    def test_pago_pendiente_de_verificacion_no_aparece(self):
+        self._crear_venta_pendiente(valor=Decimal('50000.00'))
+        response = self.c_admin.get(self.URL)
+        self.assertEqual(response.data['total_ingresos_ventas'], Decimal('0'))
+        self.assertEqual(response.data['por_medio_pago']['TRANSFERENCIA'], Decimal('0'))
+        self.assertEqual(response.data['cantidad_movimientos'], 0)
+
+    def test_gasto_en_efectivo_reduce_efectivo_esperado(self):
+        self._crear_venta_confirmada(valor=Decimal('40000.00'), medio_pago='EFECTIVO')
+        self._gasto('6000.00')
+        response = self.c_admin.get(self.URL)
+        self.assertEqual(response.data['efectivo_esperado'], Decimal('34000.00'))
+        self.assertEqual(response.data['total_gastos'], Decimal('6000.00'))
+        # por_medio_pago son INGRESOS: el gasto no lo reduce.
+        self.assertEqual(response.data['por_medio_pago']['EFECTIVO'], Decimal('40000.00'))
+
+
 class ConcurrenciaCierreTests(TransactionTestCase):
     """
     D14: dos cierres simultáneos no pueden consolidar el mismo movimiento —

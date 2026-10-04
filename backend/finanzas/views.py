@@ -18,8 +18,16 @@ from .serializers import (
     MovimientoCajaSerializer,
     RegistrarGastoSerializer,
     ResumenQuerySerializer,
+    VistaPreviaCierreSerializer,
 )
-from .services import anular_movimiento, calcular_resumen, confirmar_movimiento, crear_cierre, registrar_gasto
+from .services import (
+    anular_movimiento,
+    calcular_resumen,
+    calcular_vista_previa_cierre,
+    confirmar_movimiento,
+    crear_cierre,
+    registrar_gasto,
+)
 
 
 class MovimientoCajaViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -159,6 +167,15 @@ class CierreCajaViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         if fecha:
             queryset = queryset.filter(fecha=fecha)
         return queryset
+
+    @action(detail=False, methods=['get'], url_path='vista-previa')
+    def vista_previa(self, request):
+        """
+        D28 (extiende el Contrato v2 §11): GET /api/cierres-caja/vista-previa/,
+        solo ADMIN y con finanzas_activo (permisos del ViewSet). Muestra lo que
+        consolidaría un cierre registrado ahora, sin guardar nada.
+        """
+        return Response(VistaPreviaCierreSerializer(calcular_vista_previa_cierre()).data)
 
     def create(self, request, *args, **kwargs):
         serializer = CrearCierreSerializer(data=request.data)

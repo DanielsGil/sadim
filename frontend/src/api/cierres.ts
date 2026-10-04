@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid'
-import type { CierreCaja } from '../tipos/dominio'
+import type { CierreCaja, VistaPreviaCierre } from '../tipos/dominio'
 import { peticion } from './cliente'
 
 // Contrato API v2 §11 (HU-028). Todo el recurso es solo ADMIN.
@@ -7,6 +7,11 @@ import { peticion } from './cliente'
 export function listarCierres(fecha?: string): Promise<CierreCaja[]> {
   const cadena = fecha ? `?fecha=${fecha}` : ''
   return peticion<CierreCaja[]>(`/cierres-caja/${cadena}`)
+}
+
+/** D28: GET /api/cierres-caja/vista-previa/ — solo ADMIN, no guarda nada. */
+export function obtenerVistaPreviaCierre(): Promise<VistaPreviaCierre> {
+  return peticion<VistaPreviaCierre>('/cierres-caja/vista-previa/')
 }
 
 export function crearCierre(

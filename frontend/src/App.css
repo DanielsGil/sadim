@@ -823,7 +823,8 @@
 /* E-18: misma anchura cómoda que Inventario para los paneles de Caja; la
    tabla de pagos pendientes necesita más ancho que un formulario. */
 .panel-pagos-pendientes,
-.panel-cierre-caja {
+.panel-cierre-caja,
+.panel-cierres-anteriores {
   max-width: 900px;
 }
 
