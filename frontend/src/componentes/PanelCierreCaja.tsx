@@ -5,6 +5,7 @@ import { ErrorApi } from '../api/errorApi'
 import { contarOperacionesPendientes } from '../sync/enrutador'
 import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { CierreCaja as CierreCajaTipo, MovimientoCaja, ResumenCaja } from '../tipos/dominio'
+import { formatoMoneda } from '../utilidades/formato'
 
 function fechaHoy(): string {
   return new Date().toISOString().slice(0, 10)
@@ -91,13 +92,13 @@ export function PanelCierreCaja({ vista }: { vista: 'resumen' | 'cierre' }) {
         resumen && (
           <section className="formulario-panel">
             <h3>Resumen del día</h3>
-            <p className="campo-solo-lectura">Ingresos por ventas: {resumen.ingresos_ventas}</p>
-            <p className="campo-solo-lectura">Ingresos por abonos: {resumen.ingresos_abonos}</p>
-            <p className="campo-solo-lectura">Gastos: {resumen.gastos}</p>
-            <p className="campo-solo-lectura">Neto: <strong>{resumen.neto}</strong></p>
-            <p className="campo-solo-lectura">Efectivo (ingresos): {resumen.por_medio_pago.EFECTIVO}</p>
+            <p className="campo-solo-lectura">Ingresos por ventas: {formatoMoneda(resumen.ingresos_ventas)}</p>
+            <p className="campo-solo-lectura">Ingresos por abonos: {formatoMoneda(resumen.ingresos_abonos)}</p>
+            <p className="campo-solo-lectura">Gastos: {formatoMoneda(resumen.gastos)}</p>
+            <p className="campo-solo-lectura">Neto: <strong>{formatoMoneda(resumen.neto)}</strong></p>
+            <p className="campo-solo-lectura">Efectivo (ingresos): {formatoMoneda(resumen.por_medio_pago.EFECTIVO)}</p>
             <p className="campo-solo-lectura">
-              Pendiente de verificación (no entra al cierre): {resumen.pendiente_verificacion}
+              Pendiente de verificación (no entra al cierre): {formatoMoneda(resumen.pendiente_verificacion)}
             </p>
 
             {pendientes.length > 0 && (
@@ -112,7 +113,7 @@ export function PanelCierreCaja({ vista }: { vista: 'resumen' | 'cierre' }) {
 
       {vista === 'cierre' && resumen && (
         <p className="campo-solo-lectura">
-          Efectivo (ingresos) del día: <strong>{resumen.por_medio_pago.EFECTIVO}</strong>
+          Efectivo (ingresos) del día: <strong>{formatoMoneda(resumen.por_medio_pago.EFECTIVO)}</strong>
         </p>
       )}
 
@@ -140,7 +141,7 @@ export function PanelCierreCaja({ vista }: { vista: 'resumen' | 'cierre' }) {
 
           {diferenciaEstimada !== null && (
             <p className="campo-solo-lectura">
-              Diferencia estimada: <strong>{diferenciaEstimada}</strong>
+              Diferencia estimada: <strong>{formatoMoneda(diferenciaEstimada)}</strong>
               {diferenciaEstimada !== 0 && ' — las observaciones son obligatorias.'}
             </p>
           )}
@@ -162,7 +163,7 @@ export function PanelCierreCaja({ vista }: { vista: 'resumen' | 'cierre' }) {
           )}
           {cierreRegistrado && (
             <p className="campo-solo-lectura">
-              Cierre registrado. Diferencia final: <strong>{cierreRegistrado.diferencia}</strong>
+              Cierre registrado. Diferencia final: <strong>{formatoMoneda(cierreRegistrado.diferencia)}</strong>
             </p>
           )}
 

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { ContadorCantidad } from './ContadorCantidad'
 import { unidadesEnBandeja, type ItemBandeja } from './bandeja'
+import { formatoMoneda } from '../utilidades/formato'
 
 interface Props {
   items: ItemBandeja[]
@@ -71,7 +72,7 @@ export function BandejaSeleccion({
           <strong>
             {unidades} producto{unidades === 1 ? '' : 's'}
           </strong>
-          {` · ${totalEstimado.toFixed(2)}`}
+          {` · ${formatoMoneda(totalEstimado)}`}
           {conError > 0 && <span className="bandeja-barra-error">{` · ${conError} con error`}</span>}
         </button>
         <button
@@ -97,7 +98,7 @@ export function BandejaSeleccion({
             <li key={item.producto.id} className="bandeja-item">
               <div className="bandeja-item-encabezado">
                 <span className="bandeja-item-nombre">{item.producto.nombre}</span>
-                <span className="bandeja-item-precio">{item.producto.precio_venta}</span>
+                <span className="bandeja-item-precio">{formatoMoneda(item.producto.precio_venta)}</span>
               </div>
               <div className="bandeja-item-controles">
                 <ContadorCantidad
@@ -128,7 +129,7 @@ export function BandejaSeleccion({
 
       <div className="bandeja-pie">
       <p className="campo-solo-lectura">
-        Total estimado: <strong>{totalEstimado.toFixed(2)}</strong> (lo confirma el servidor)
+        Total estimado: <strong>{formatoMoneda(totalEstimado)}</strong> (lo confirma el servidor)
       </p>
 
       {children}

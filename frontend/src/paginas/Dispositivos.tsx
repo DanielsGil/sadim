@@ -9,6 +9,7 @@ import { ErrorApi } from '../api/errorApi'
 import { obtenerOCrearDeviceId } from '../db/baseLocal'
 import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { Dispositivo } from '../tipos/dominio'
+import { formatoFechaHora } from '../utilidades/formato'
 
 /**
  * Dispositivos (HU-051, Contrato v2 §4.1). Solo ADMIN, requiere conexión
@@ -138,7 +139,7 @@ export function Dispositivos() {
                 </td>
                 <td>{dispositivo.autorizado_offline ? 'Sí' : 'No'}</td>
                 <td>{dispositivo.activo ? 'Sí' : 'No'}</td>
-                <td>{dispositivo.ultima_sincronizacion ?? '—'}</td>
+                <td>{dispositivo.ultima_sincronizacion ? formatoFechaHora(dispositivo.ultima_sincronizacion) : '—'}</td>
                 <td>
                   {dispositivo.activo && !dispositivo.autorizado_offline && (
                     <button

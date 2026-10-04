@@ -6,6 +6,7 @@ import { AvisoCopiaLocal, EtiquetaProvisional } from '../componentes/AvisoLocal'
 import { FormularioOrden } from '../componentes/FormularioOrden'
 import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { EstadoOrden, OrdenTrabajo } from '../tipos/dominio'
+import { formatoFecha, formatoMoneda } from '../utilidades/formato'
 
 const ETIQUETA_ESTADO: Record<EstadoOrden, string> = {
   RECIBIDO: 'Recibido',
@@ -100,14 +101,14 @@ export function Ordenes() {
                 onClick={() => navigate(`/ordenes/${orden.id}`)}
               >
                 <td>{orden.cliente_nombre}</td>
-                <td>{orden.fecha_entrega_estimada}</td>
+                <td>{formatoFecha(orden.fecha_entrega_estimada)}</td>
                 <td>
                   <span className={`insignia-estado-orden-${orden.estado.toLowerCase()}`}>
                     {ETIQUETA_ESTADO[orden.estado]}
                   </span>
                 </td>
                 <td>
-                  {orden.saldo_pendiente}
+                  {formatoMoneda(orden.saldo_pendiente)}
                   <EtiquetaProvisional visible={provisional} />
                 </td>
               </tr>

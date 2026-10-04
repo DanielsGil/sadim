@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { Categoria, Producto } from '../tipos/dominio'
+import { formatoMoneda } from '../utilidades/formato'
 
 interface Props {
   categorias: Categoria[]
@@ -94,7 +95,7 @@ export function SelectorProductos({ categorias, productos, onSeleccionar, acumul
               </span>
             )}
             <span className="tarjeta-producto-nombre">{producto.nombre}</span>
-            <span className="tarjeta-producto-precio">{producto.precio_venta}</span>
+            <span className="tarjeta-producto-precio">{formatoMoneda(producto.precio_venta)}</span>
             {producto.controla_stock && (
               <span className="tarjeta-producto-stock">Stock: {producto.stock_actual}</span>
             )}

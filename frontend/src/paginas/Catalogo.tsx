@@ -4,6 +4,7 @@ import { ErrorApi } from '../api/errorApi'
 import { FormularioCategoria } from '../componentes/FormularioCategoria'
 import { FormularioProducto } from '../componentes/FormularioProducto'
 import type { Categoria, Producto, TipoProducto } from '../tipos/dominio'
+import { formatoMoneda } from '../utilidades/formato'
 
 const ETIQUETA_TIPO: Record<TipoProducto, string> = {
   REVENTA_DIRECTA: 'Reventa directa',
@@ -179,8 +180,8 @@ export function Catalogo() {
                   <td>{producto.nombre}</td>
                   <td>{nombreCategoria(producto.categoria_id)}</td>
                   <td>{ETIQUETA_TIPO[producto.tipo]}</td>
-                  <td>{producto.precio_venta}</td>
-                  <td>{producto.costo_produccion ?? '—'}</td>
+                  <td>{formatoMoneda(producto.precio_venta)}</td>
+                  <td>{producto.costo_produccion != null ? formatoMoneda(producto.costo_produccion) : '—'}</td>
                   <td>{producto.controla_stock ? producto.stock_actual : '—'}</td>
                   <td>{producto.controla_stock ? producto.stock_minimo : '—'}</td>
                   <td>

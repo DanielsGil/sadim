@@ -8,6 +8,7 @@ import { PanelMovimientoInventario } from '../componentes/PanelMovimientoInventa
 import { useSesion } from '../contexto/SesionContext'
 import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { Categoria, MovimientoInventario, StockProducto } from '../tipos/dominio'
+import { formatoFechaHora } from '../utilidades/formato'
 
 /**
  * Inventario (CU-11, CU-12, CU-13, HU-024, HU-025, HU-026): existencias,
@@ -173,7 +174,7 @@ export function Inventario() {
                     <tr key={movimiento.id}>
                       <td>{movimiento.tipo}{movimiento.sentido ? ` (${movimiento.sentido})` : ''}</td>
                       <td>{movimiento.cantidad}</td>
-                      <td>{movimiento.fecha}</td>
+                      <td>{formatoFechaHora(movimiento.fecha)}</td>
                       <td>{movimiento.motivo ?? '—'}</td>
                     </tr>
                   ))}

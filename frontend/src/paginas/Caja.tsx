@@ -14,6 +14,7 @@ import { PanelCierreCaja } from '../componentes/PanelCierreCaja'
 import { useSesion } from '../contexto/SesionContext'
 import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { ConfiguracionPago, MedioPago, MovimientoCaja } from '../tipos/dominio'
+import { formatoFechaHora, formatoMoneda } from '../utilidades/formato'
 
 const ETIQUETA_MEDIO_PAGO: Record<MedioPago, string> = {
   EFECTIVO: 'Efectivo',
@@ -247,8 +248,8 @@ export function Caja() {
                 <tr key={movimiento.id}>
                   <td>{ETIQUETA_TIPO[movimiento.tipo] ?? movimiento.tipo}</td>
                   <td>{ETIQUETA_MEDIO_PAGO[movimiento.medio_pago]}</td>
-                  <td>{movimiento.valor}</td>
-                  <td>{movimiento.fecha}</td>
+                  <td>{formatoMoneda(movimiento.valor)}</td>
+                  <td>{formatoFechaHora(movimiento.fecha)}</td>
                   <td className="celda-acciones">
                     <button
                       type="button"

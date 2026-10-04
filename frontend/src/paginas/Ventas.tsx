@@ -5,6 +5,7 @@ import { ErrorApi } from '../api/errorApi'
 import { listarVentas } from '../api/ventas'
 import { FormularioVentaRapida } from '../componentes/FormularioVentaRapida'
 import type { Mesa, Venta } from '../tipos/dominio'
+import { formatoMoneda } from '../utilidades/formato'
 
 /** Ventas — mapa de mesas y venta rápida (CU-01, CU-02, HU-012..HU-019). */
 export function Ventas() {
@@ -78,7 +79,7 @@ export function Ventas() {
               >
                 <span className="tarjeta-mesa-numero">Mesa {mesa.numero}</span>
                 <span>{mesa.estado === 'OCUPADA' ? 'Ocupada' : 'Disponible'}</span>
-                {venta && <span>Total: {venta.total}</span>}
+                {venta && <span>Total: {formatoMoneda(venta.total)}</span>}
               </button>
             )
           })}

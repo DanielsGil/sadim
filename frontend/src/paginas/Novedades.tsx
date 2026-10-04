@@ -4,6 +4,7 @@ import { listarNovedades, marcarNovedadAtendida } from '../api/novedades'
 import { baseLocal } from '../db/baseLocal'
 import { estaEnLinea } from '../sync/cacheCatalogo'
 import type { Novedad } from '../tipos/dominio'
+import { formatoFechaHora } from '../utilidades/formato'
 
 /**
  * Novedades (HU-052): resultados RECHAZADA/CONFLICTO de /api/sync/. Ambos
@@ -92,7 +93,7 @@ export function Novedades() {
                 <td>{novedad.recurso}</td>
                 <td>{novedad.codigo_conflicto ?? '—'}</td>
                 <td>{novedad.mensaje ?? '—'}</td>
-                <td>{novedad.fecha_cliente}</td>
+                <td>{formatoFechaHora(novedad.fecha_cliente)}</td>
                 <td>
                   {!novedad.atendida && (
                     <button type="button" onClick={() => void manejarAtendida(novedad.id)} disabled={!enLinea}>

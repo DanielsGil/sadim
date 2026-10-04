@@ -26,6 +26,7 @@ import type {
   OrdenTrabajoDetalle as OrdenTrabajoDetalleTipo,
   Producto,
 } from '../tipos/dominio'
+import { formatoFecha, formatoFechaHora, formatoMoneda } from '../utilidades/formato'
 
 const ETIQUETA_ESTADO: Record<EstadoOrden, string> = {
   RECIBIDO: 'Recibido',
@@ -236,11 +237,11 @@ export function DetalleOrden() {
           <p className="campo-solo-lectura">Teléfono: <strong>{orden.cliente_telefono}</strong></p>
         )}
         <p className="campo-solo-lectura">Encargo: {orden.descripcion}</p>
-        <p className="campo-solo-lectura">Entrega estimada: {orden.fecha_entrega_estimada}</p>
+        <p className="campo-solo-lectura">Entrega estimada: {formatoFecha(orden.fecha_entrega_estimada)}</p>
         <p className="campo-solo-lectura">Estado: <strong>{ETIQUETA_ESTADO[orden.estado]}</strong></p>
-        <p className="campo-solo-lectura">Costo total: {orden.costo_total}</p>
+        <p className="campo-solo-lectura">Costo total: {formatoMoneda(orden.costo_total)}</p>
         <p className="campo-solo-lectura">
-          Saldo pendiente: <strong>{orden.saldo_pendiente}</strong>
+          Saldo pendiente: <strong>{formatoMoneda(orden.saldo_pendiente)}</strong>
           <EtiquetaProvisional visible={provisional} />
         </p>
 
@@ -279,10 +280,10 @@ export function DetalleOrden() {
           <tbody>
             {orden.abonos.map((abono) => (
               <tr key={abono.id}>
-                <td>{abono.valor}</td>
+                <td>{formatoMoneda(abono.valor)}</td>
                 <td>{ETIQUETA_MEDIO_PAGO[abono.medio_pago]}</td>
                 <td>{ETIQUETA_ESTADO_PAGO[abono.estado_pago]}</td>
-                <td>{abono.fecha}</td>
+                <td>{formatoFechaHora(abono.fecha)}</td>
               </tr>
             ))}
             {orden.abonos.length === 0 && (
@@ -393,7 +394,7 @@ export function DetalleOrden() {
         <section className="formulario-panel">
           <h3>Costos operativos</h3>
           <p className="campo-solo-lectura">
-            Utilidad neta: <strong>{utilidadNeta ?? orden.utilidad_neta}</strong>
+            Utilidad neta: <strong>{formatoMoneda(utilidadNeta ?? orden.utilidad_neta ?? '—')}</strong>
             <EtiquetaProvisional visible={provisional} />
           </p>
           <table className="tabla-productos">
@@ -407,7 +408,7 @@ export function DetalleOrden() {
               {costos.map((costo) => (
                 <tr key={costo.id}>
                   <td>{costo.concepto}</td>
-                  <td>{costo.valor}</td>
+                  <td>{formatoMoneda(costo.valor)}</td>
                 </tr>
               ))}
               {costos.length === 0 && (

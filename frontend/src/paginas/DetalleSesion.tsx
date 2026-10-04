@@ -19,6 +19,7 @@ import { SelectorProductos } from '../componentes/SelectorProductos'
 import { useBandejaPersistente } from '../componentes/useBandejaPersistente'
 import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { Categoria, ConfiguracionPago, DetalleVenta, Mesa, MedioPago, Producto, Venta } from '../tipos/dominio'
+import { formatoMoneda } from '../utilidades/formato'
 
 const ETIQUETA_MEDIO_PAGO: Record<MedioPago, string> = {
   EFECTIVO: 'Efectivo',
@@ -354,8 +355,8 @@ export function DetalleSesion() {
                 <tr key={grupo.producto_id}>
                   <td>{nombreProducto(grupo.producto_id)}</td>
                   <td>{grupo.cantidad}</td>
-                  <td>{grupo.precio_unitario ?? 'Varios'}</td>
-                  <td>{grupo.subtotal.toFixed(2)}</td>
+                  <td>{grupo.precio_unitario !== null ? formatoMoneda(grupo.precio_unitario) : 'Varios'}</td>
+                  <td>{formatoMoneda(grupo.subtotal)}</td>
                   <td>
                     <button
                       type="button"
@@ -380,7 +381,7 @@ export function DetalleSesion() {
           </table>
 
           <p className="campo-solo-lectura">
-            Total: <strong>{venta.total}</strong>
+            Total: <strong>{formatoMoneda(venta.total)}</strong>
           </p>
         </>
       ) : (
