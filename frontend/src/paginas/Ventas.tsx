@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { listarMesas } from '../api/mesas'
 import { ErrorApi } from '../api/errorApi'
-import { listarVentas } from '../api/ventas'
+import { obtenerMapaMesas } from '../api/mapaMesas'
+import { AvisoCopiaLocal, EtiquetaProvisional } from '../componentes/AvisoLocal'
 import { FormularioVentaRapida } from '../componentes/FormularioVentaRapida'
+import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { Mesa, Venta } from '../tipos/dominio'
 import { formatoMoneda } from '../utilidades/formato'
 
@@ -15,14 +16,18 @@ export function Ventas() {
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [mostrarVentaRapida, setMostrarVentaRapida] = useState(false)
+  // B4 (F-1): true si el mapa sale de la copia local (sin conexión o con cola pendiente).
+  const [provisional, setProvisional] = useState(false)
+  const { enLinea } = useEstadoLocal()
 
   function recargar() {
     setCargando(true)
     setError(null)
-    Promise.all([listarMesas({ activa: true }), listarVentas({ estado: 'ABIERTA' })])
-      .then(([mesasObtenidas, ventasObtenidas]) => {
-        setMesas(mesasObtenidas)
-        setVentasAbiertas(ventasObtenidas)
+    obtenerMapaMesas()
+      .then((mapa) => {
+        setMesas(mapa.mesas)
+        setVentasAbiertas(mapa.ventasAbiertas)
+        setProvisional(mapa.provisional)
       })
       .catch((err: unknown) => {
         setError(err instanceof ErrorApi ? err.message : 'No se pudo cargar el mapa de mesas.')
@@ -47,6 +52,8 @@ export function Ventas() {
           Venta rápida
         </button>
       </div>
+
+      <AvisoCopiaLocal enLinea={enLinea} />
 
       {error && (
         <p className="mensaje-error" role="alert">
@@ -79,7 +86,12 @@ export function Ventas() {
               >
                 <span className="tarjeta-mesa-numero">Mesa {mesa.numero}</span>
                 <span>{mesa.estado === 'OCUPADA' ? 'Ocupada' : 'Disponible'}</span>
-                {venta && <span>Total: {formatoMoneda(venta.total)}</span>}
+                {venta && (
+                  <span>
+                    Total: {formatoMoneda(venta.total)}
+                    <EtiquetaProvisional visible={provisional} />
+                  </span>
+                )}
               </button>
             )
           })}
