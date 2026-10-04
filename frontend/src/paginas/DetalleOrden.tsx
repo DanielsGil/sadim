@@ -26,6 +26,7 @@ import type {
   OrdenTrabajoDetalle as OrdenTrabajoDetalleTipo,
   Producto,
 } from '../tipos/dominio'
+import { ETIQUETA_ESTADO_PAGO } from '../utilidades/etiquetas'
 import { formatoFecha, formatoFechaHora, formatoMoneda } from '../utilidades/formato'
 
 const ETIQUETA_ESTADO: Record<EstadoOrden, string> = {
@@ -46,11 +47,6 @@ const ETIQUETA_MEDIO_PAGO: Record<MedioPago, string> = {
   EFECTIVO: 'Efectivo',
   TRANSFERENCIA: 'Transferencia',
   QR: 'QR',
-}
-
-const ETIQUETA_ESTADO_PAGO: Record<string, string> = {
-  CONFIRMADO: 'Confirmado',
-  PENDIENTE_VERIFICACION: 'Pendiente de verificación',
 }
 
 /** Detalle de orden de trabajo (CU-07..CU-10, HU-021, HU-022, HU-041, HU-023). */
