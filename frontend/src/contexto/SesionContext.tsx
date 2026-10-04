@@ -2,6 +2,7 @@ import { createContext, use, useCallback, useEffect, useState, type ReactNode } 
 import { cerrarSesion as cerrarSesionApi, iniciarSesion as iniciarSesionApi } from '../api/auth'
 import { obtenerConfiguracionModulos } from '../api/configuracion'
 import { EVENTO_SESION_CERRADA } from '../api/eventosSesion'
+import { ErrorColaDeOtroUsuario } from './erroresSesion'
 import {
   borrarBandejasLocales,
   borrarSesion as borrarSesionLocal,
@@ -69,9 +70,7 @@ export function SesionProvider({ children }: { children: ReactNode }) {
     const propietario = await obtenerPropietarioCola()
     if (propietario && propietario !== nuevaSesion.usuario_id) {
       await borrarSesionLocal()
-      throw new Error(
-        'Hay operaciones sin sincronizar de otro usuario en este dispositivo. Inicia sesión con esa cuenta primero.',
-      )
+      throw new ErrorColaDeOtroUsuario()
     }
     setSesion(nuevaSesion)
     await recargarModulos()

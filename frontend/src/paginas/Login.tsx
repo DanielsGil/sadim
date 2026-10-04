@@ -1,7 +1,24 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { ErrorApi } from '../api/errorApi'
+import { ErrorColaDeOtroUsuario } from '../contexto/erroresSesion'
 import { useSesion } from '../contexto/SesionContext'
+
+/**
+ * A4 (F-3): mensaje según la causa, distinguida por tipo y no por texto.
+ * - ErrorApi: el mensaje del servidor (p. ej. CREDENCIALES_INVALIDAS, que ya
+ *   unifica usuario inexistente, contraseña incorrecta y usuario inactivo).
+ * - D21 (otro usuario con operaciones en cola): su propio mensaje.
+ * - Sin red: `fetch` lanza TypeError, o el navegador ya sabe que está offline.
+ */
+function mensajeErrorLogin(err: unknown): string {
+  if (err instanceof ErrorApi) return err.message
+  if (err instanceof ErrorColaDeOtroUsuario) return err.message
+  if (!navigator.onLine || err instanceof TypeError) {
+    return 'No hay conexión. El primer inicio de sesión necesita internet.'
+  }
+  return 'No se pudo iniciar sesión.'
+}
 
 /** Inicio de sesión — wireframe 1, CU-17. */
 export function Login() {
@@ -24,9 +41,7 @@ export function Login() {
       await iniciarSesion(username, password)
       navigate('/', { replace: true })
     } catch (err) {
-      // El backend ya unifica usuario inexistente, contraseña incorrecta y
-      // usuario inactivo en un solo mensaje genérico (CREDENCIALES_INVALIDAS).
-      setError(err instanceof ErrorApi ? err.message : 'No se pudo iniciar sesión.')
+      setError(mensajeErrorLogin(err))
     } finally {
       setEnviando(false)
     }
