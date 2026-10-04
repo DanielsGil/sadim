@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { OperacionCola, ResultadoOperacionSync } from '../tipos/dominio'
+import { filaNovedadLocal } from './almacenDexie'
 import {
   _resetearCandadoSincronizacion,
   debeEscribirEnLinea,
@@ -121,6 +122,27 @@ describe('sincronizar', () => {
     expect(novedades.filas.find((n) => n.operation_id === 'op-conflicto')?.codigo_conflicto).toBe(
       'STOCK_INSUFICIENTE',
     )
+    // B5 (F-11): cada novedad conserva el estado real que devolvió el servidor.
+    expect(novedades.filas.find((n) => n.operation_id === 'op-conflicto')?.estado).toBe('CONFLICTO')
+    expect(novedades.filas.find((n) => n.operation_id === 'op-rechazada')?.estado).toBe('RECHAZADA')
+  })
+
+  it('B5: la fila local de novedades guarda CONFLICTO, no siempre RECHAZADA', () => {
+    const fila = filaNovedadLocal(
+      {
+        operation_id: 'op-1',
+        resource: 'ventas.cerrar',
+        estado: 'CONFLICTO',
+        codigo_conflicto: 'STOCK_INSUFICIENTE',
+        mensaje: 'sin existencias',
+        fecha_cliente: '2026-10-03T10:00:00-05:00',
+        atendida: false,
+      },
+      new Date('2026-10-03T15:00:00Z'),
+    )
+    expect(fila.estado).toBe('CONFLICTO')
+    expect(fila.recurso).toBe('ventas.cerrar')
+    expect(fila.fecha_procesamiento).toBe('2026-10-03T15:00:00.000Z')
   })
 
   it('conserva la cola intacta ante 403 DISPOSITIVO_NO_AUTORIZADO y avisa', async () => {

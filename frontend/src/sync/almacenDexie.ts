@@ -1,5 +1,5 @@
 import { baseLocal } from '../db/baseLocal'
-import type { OperacionCola } from '../tipos/dominio'
+import type { Novedad, OperacionCola } from '../tipos/dominio'
 import type { AlmacenCola, AlmacenNovedades, NovedadLocal } from './motor'
 
 /** Implementación real de AlmacenCola sobre Dexie (ERD §10, almacén cola_sincronizacion). */
@@ -21,24 +21,33 @@ export const almacenColaDexie: AlmacenCola = {
   },
 }
 
+/**
+ * Fila del almacén `novedades` a partir del resultado de una sincronización.
+ * B5 (F-11): guarda el estado REAL del servidor (RECHAZADA o CONFLICTO); antes
+ * se fijaba siempre 'RECHAZADA'.
+ */
+export function filaNovedadLocal(novedad: NovedadLocal, ahora: Date = new Date()): Novedad {
+  return {
+    id: novedad.operation_id,
+    operation_id: novedad.operation_id,
+    dispositivo_id: null,
+    usuario_id: '',
+    recurso: novedad.resource,
+    accion: '',
+    estado: novedad.estado,
+    codigo_conflicto: novedad.codigo_conflicto,
+    mensaje: novedad.mensaje,
+    objeto_id: null,
+    fecha_cliente: novedad.fecha_cliente,
+    fecha_procesamiento: ahora.toISOString(),
+    atendida: novedad.atendida,
+  }
+}
+
 /** Implementación real de AlmacenNovedades sobre Dexie (ERD §10, almacén novedades). */
 export const almacenNovedadesDexie: AlmacenNovedades = {
   async agregar(novedad: NovedadLocal) {
-    await baseLocal.novedades.put({
-      id: novedad.operation_id,
-      operation_id: novedad.operation_id,
-      dispositivo_id: null,
-      usuario_id: '',
-      recurso: novedad.resource,
-      accion: '',
-      estado: 'RECHAZADA',
-      codigo_conflicto: novedad.codigo_conflicto,
-      mensaje: novedad.mensaje,
-      objeto_id: null,
-      fecha_cliente: novedad.fecha_cliente,
-      fecha_procesamiento: new Date().toISOString(),
-      atendida: novedad.atendida,
-    })
+    await baseLocal.novedades.put(filaNovedadLocal(novedad))
   },
 }
 

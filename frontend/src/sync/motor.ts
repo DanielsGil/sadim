@@ -25,6 +25,8 @@ export interface AlmacenCola {
 export interface NovedadLocal {
   operation_id: string
   resource: string
+  /** B5 (F-11): el estado real que devolvió el servidor. */
+  estado: 'RECHAZADA' | 'CONFLICTO'
   codigo_conflicto: string | null
   mensaje: string | null
   fecha_cliente: string
@@ -125,6 +127,7 @@ export async function sincronizar(deps: DependenciasMotor): Promise<void> {
         await deps.novedades.agregar({
           operation_id: resultado.operation_id,
           resource: operacionOriginal?.resource ?? 'desconocido',
+          estado: resultado.estado,
           codigo_conflicto: resultado.codigo_conflicto ?? null,
           mensaje: resultado.mensaje ?? null,
           fecha_cliente: operacionOriginal?.fecha_cliente ?? new Date().toISOString(),
