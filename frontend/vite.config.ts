@@ -8,20 +8,26 @@ export default defineConfig({
     react(),
     // HU-033 (Bloque 5b): manifest + service worker para que la PWA abra sin
     // conexión después de la primera visita y se pueda instalar. Los íconos
-    // salen del favicon.svg existente (autoUpdate: el service worker nuevo
-    // se activa solo, sin pedirle nada al usuario).
+    // son los PNG de public/ generados del logo de SADIM (A1) (autoUpdate: el
+    // service worker nuevo se activa solo, sin pedirle nada al usuario).
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg'],
+      includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+      // A1 (F-16): identidad propia de SADIM (monograma «S» sobre el color de
+      // acento), en español; theme_color = --accent de src/index.css.
       manifest: {
         name: 'SADIM',
         short_name: 'SADIM',
         description: 'PWA offline-first para micro-comercios y negocios de servicios.',
-        theme_color: '#863bff',
+        lang: 'es',
+        theme_color: '#aa3bff',
         background_color: '#ffffff',
         display: 'standalone',
         start_url: '/',
         icons: [
+          { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
           { src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
         ],
       },
@@ -34,7 +40,7 @@ export default defineConfig({
         // B2 (F-10): las navegaciones a la API y al admin de Django van al
         // servidor, no al index.html de la PWA (si no, /admin/ mostraba la app).
         navigateFallbackDenylist: [/^\/api\//, /^\/admin\//],
-        globPatterns: ['**/*.{js,css,html,svg}'],
+        globPatterns: ['**/*.{js,css,html,svg,png}'],
       },
     }),
   ],

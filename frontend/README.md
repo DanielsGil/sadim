@@ -1,32 +1,11 @@
-# React + TypeScript + Vite
+# SADIM — Frontend (PWA)
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Aplicación web progresiva de SADIM hecha con React 19, TypeScript y Vite. Funciona sin conexión gracias a un service worker (`vite-plugin-pwa`) y a IndexedDB (Dexie), donde se guardan la sesión, la copia del catálogo y la cola de sincronización.
 
-Currently, two official plugins are available:
+- `src/api/`: un módulo por recurso del Contrato API; todas las llamadas pasan por `api/cliente.ts`.
+- `src/sync/`: enrutador de escrituras (en línea o cola), motor de sincronización y vistas locales provisionales.
+- `src/paginas/` y `src/componentes/`: pantallas y componentes de la interfaz.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Comandos (desde esta carpeta): `npm run dev`, `npm test`, `npx tsc -b`, `npm run lint`, `npm run build`.
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Instalación, arranque con el backend y despliegue: ver el [README.md de la raíz](../README.md).
