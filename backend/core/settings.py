@@ -17,6 +17,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -30,15 +31,22 @@ load_dotenv(ROOT_DIR / '.env')
 # spa_view responde 501 en ese caso en vez de fallar al importar settings.
 FRONTEND_DIST = ROOT_DIR / 'frontend' / 'dist'
 
-# SECURITY WARNING: keep the secret key used in production secret!
-# Fallback solo para desarrollo si falta .env; en producción SECRET_KEY debe venir del entorno.
-SECRET_KEY = os.environ.get(
-    'SECRET_KEY',
-    'django-insecure-g_fxytr76m0$mj^x#hpnvajoz*-7aps9=b7a)r+jve&a=qtwt1',
-)
-
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
+
+# SECURITY WARNING: keep the secret key used in production secret!
+# B1 (F-13): en producción (DEBUG=False) SECRET_KEY es obligatoria; si falta,
+# Django no arranca, en vez de firmar los JWT con la clave de desarrollo.
+# Con DEBUG=True (desarrollo, pruebas y el collectstatic del Dockerfile) se
+# mantiene el valor de desarrollo.
+SECRET_KEY = os.environ.get('SECRET_KEY', '')
+if not SECRET_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured(
+            'SECRET_KEY no está definida. En producción (DEBUG=False) es obligatorio '
+            'configurarla como variable de entorno.'
+        )
+    SECRET_KEY = 'django-insecure-g_fxytr76m0$mj^x#hpnvajoz*-7aps9=b7a)r+jve&a=qtwt1'
 
 # Bloque 6a (D25): en producción (Render) llega por env, separado por comas
 # (p. ej. "sadim.onrender.com"). En desarrollo, sin la variable, basta localhost.
