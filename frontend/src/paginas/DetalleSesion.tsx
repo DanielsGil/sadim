@@ -84,6 +84,8 @@ export function DetalleSesion() {
   const [medioPago, setMedioPago] = useState<MedioPago | ''>('')
   const [confirmandoCancelacion, setConfirmandoCancelacion] = useState(false)
   const [procesando, setProcesando] = useState(false)
+  // A3 (F-8): «Cobrando…» solo mientras se envía el cobro.
+  const [cobrando, setCobrando] = useState(false)
   // E-12: bandeja de selección. Nunca se envía sola: solo con «Agregar a la mesa».
   // E-19: guardada en el dispositivo, una por mesa (el botón «atrás» no la pierde).
   const [bandeja, setBandeja, vaciarBandeja] = useBandejaPersistente(mesaId ? `mesa:${mesaId}` : null)
@@ -110,7 +112,7 @@ export function DetalleSesion() {
         setMesa(mesas.find((m) => m.id === mesaId) ?? null)
       })
       .catch((err: unknown) => {
-        setError(mensajeErrorApi(err, 'No se pudo cargar la sesión.'))
+        setError(mensajeErrorApi(err, 'No se pudo cargar la cuenta.'))
       })
       .finally(() => setCargando(false))
   }, [mesaId])
@@ -264,7 +266,7 @@ export function DetalleSesion() {
 
   async function manejarCerrar(confirmadoSinBandeja = false) {
     if (!venta || !medioPago) {
-      setError('Selecciona un medio de pago para cerrar.')
+      setError('Selecciona un medio de pago para cobrar.')
       return
     }
     // E-12: lo que esté en la bandeja no se envía solo; se pregunta.
@@ -275,14 +277,16 @@ export function DetalleSesion() {
     setConfirmandoCierreConBandeja(false)
     setError(null)
     setProcesando(true)
+    setCobrando(true)
     try {
       await cerrarVenta(venta.id, medioPago)
       await vaciarBandeja()
       navigate('/ventas')
     } catch (err) {
-      setError(mensajeErrorApi(err, 'No se pudo cerrar la sesión.'))
+      setError(mensajeErrorApi(err, 'No se pudo cobrar la cuenta.'))
     } finally {
       setProcesando(false)
+      setCobrando(false)
     }
   }
 
@@ -295,13 +299,13 @@ export function DetalleSesion() {
       await vaciarBandeja()
       navigate('/ventas')
     } catch (err) {
-      setError(mensajeErrorApi(err, 'No se pudo cancelar la sesión.'))
+      setError(mensajeErrorApi(err, 'No se pudo cancelar la cuenta.'))
       setProcesando(false)
     }
   }
 
   if (cargando) {
-    return <p className="cargando">Cargando sesión…</p>
+    return <p className="cargando">Cargando cuenta…</p>
   }
 
   // D22: cuando la escritura va a la cola (sin conexión o con cola pendiente) el servidor no
@@ -324,7 +328,7 @@ export function DetalleSesion() {
   return (
     <div className={`pagina-detalle-sesion ${hayBandeja ? 'con-bandeja' : ''}`}>
       <div className="encabezado-seccion">
-        <h1>{mesa ? `Mesa ${mesa.numero}` : 'Sesión'}</h1>
+        <h1>{mesa ? `Mesa ${mesa.numero}` : 'Cuenta'}</h1>
         <button type="button" className="boton-secundario" onClick={() => intentarSalir('/ventas')}>
           Volver al mapa de mesas
         </button>
@@ -387,7 +391,7 @@ export function DetalleSesion() {
       ) : (
         // D26 (E-09): tocar la mesa no abre nada por sí solo — la sesión se
         // crea al agregar el primer producto.
-        <p className="texto-vacio">Todavía no se ha abierto nada. Agrega el primer producto para abrir la sesión.</p>
+        <p className="texto-vacio">Esta mesa no tiene una cuenta abierta. Agrega el primer producto para abrirla.</p>
       )}
 
       <section className="formulario-panel panel-selector-productos">
@@ -418,7 +422,7 @@ export function DetalleSesion() {
       {venta && (
         <>
           <section className="formulario-panel">
-            <h3>Cerrar sesión</h3>
+            <h3>Cobrar cuenta</h3>
             <label htmlFor="detalle-medio-pago">Medio de pago</label>
             <select
               id="detalle-medio-pago"
@@ -462,7 +466,7 @@ export function DetalleSesion() {
             ) : (
               <div className="acciones-formulario">
                 <button type="button" disabled={ocupado} onClick={() => void manejarCerrar()}>
-                  Cerrar sesión
+                  {cobrando ? 'Cobrando…' : 'Cobrar y cerrar cuenta'}
                 </button>
               </div>
             )}
@@ -471,7 +475,7 @@ export function DetalleSesion() {
           <section className="formulario-panel">
             {confirmandoCancelacion ? (
               <>
-                <p>¿Seguro que quieres cancelar esta sesión? No se generará ningún movimiento.</p>
+                <p>¿Seguro que quieres cancelar esta cuenta? No se cobrará nada ni se descontará inventario.</p>
                 <div className="acciones-formulario">
                   <button
                     type="button"
@@ -481,7 +485,7 @@ export function DetalleSesion() {
                     No
                   </button>
                   <button type="button" disabled={ocupado} onClick={() => void manejarCancelar()}>
-                    Sí, cancelar sesión
+                    Sí, cancelar cuenta
                   </button>
                 </div>
               </>
@@ -491,7 +495,7 @@ export function DetalleSesion() {
                 className="boton-secundario"
                 onClick={() => setConfirmandoCancelacion(true)}
               >
-                Cancelar sesión
+                Cancelar cuenta
               </button>
             )}
           </section>
