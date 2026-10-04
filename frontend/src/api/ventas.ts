@@ -36,9 +36,23 @@ export interface ItemVentaRapida {
   cantidad: number
 }
 
+/**
+ * B3 (F-9, D19): precio_venta del producto en la copia local del catálogo en
+ * el momento de agregarlo. Solo viaja en el payload que se ENCOLA (el
+ * servidor lo conserva al sincronizar); la llamada en línea no lo envía y
+ * usa el precio vigente. Si el producto no está en la copia local se omite
+ * y el servidor también usa el precio vigente. Subtotal y total los sigue
+ * calculando el servidor.
+ */
+async function precioDelDispositivo(productoId: string): Promise<{ precio_unitario?: number }> {
+  const producto = await leerUnoDelCatalogoLocal<Producto>('productos', productoId)
+  return producto ? { precio_unitario: producto.precio_venta } : {}
+}
+
 export async function crearVentaRapida(medioPago: MedioPago, detalles: ItemVentaRapida[]): Promise<Venta> {
   const idVenta = uuidv4()
   const idsDetalles = detalles.map(() => uuidv4())
+  const precios = await Promise.all(detalles.map((detalle) => precioDelDispositivo(detalle.producto_id)))
 
   return escribir<Venta>({
     resource: 'ventas',
@@ -53,6 +67,7 @@ export async function crearVentaRapida(medioPago: MedioPago, detalles: ItemVenta
         operation_id: uuidv4(),
         producto_id: detalle.producto_id,
         cantidad: detalle.cantidad,
+        ...precios[indice],
       })),
     },
     llamarEnLinea: (operationId) =>
@@ -139,14 +154,15 @@ export function abrirSesion(mesaId: string): Promise<Venta> {
   })
 }
 
-export function agregarDetalle(ventaId: string, productoId: string, cantidad: number): Promise<DetalleVenta> {
+export async function agregarDetalle(ventaId: string, productoId: string, cantidad: number): Promise<DetalleVenta> {
   const idDetalle = uuidv4()
+  const precio = await precioDelDispositivo(productoId)
   return escribir<DetalleVenta>({
     resource: 'ventas.detalles',
     action: 'CREATE',
     idObjeto: idDetalle,
     referenciaId: ventaId,
-    payload: { id: idDetalle, venta_id: ventaId, producto_id: productoId, cantidad },
+    payload: { id: idDetalle, venta_id: ventaId, producto_id: productoId, cantidad, ...precio },
     llamarEnLinea: (operationId) =>
       peticion<DetalleVenta>(`/ventas/${ventaId}/detalles/`, {
         method: 'POST',
