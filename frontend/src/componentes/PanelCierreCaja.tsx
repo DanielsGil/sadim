@@ -164,6 +164,15 @@ export function PanelCierreCaja({ vista }: { vista: 'resumen' | 'cierre' }) {
                 </p>
                 <p className="campo-solo-lectura">Gastos: {formatoMoneda(vistaPrevia.total_gastos)}</p>
                 <p className="campo-solo-lectura">Neto: <strong>{formatoMoneda(vistaPrevia.total_neto)}</strong></p>
+                {/* F-21: desglose de la vista previa (D28), solo presentación. */}
+                <p className="campo-solo-lectura">
+                  Efectivo (ingresos): {formatoMoneda(vistaPrevia.por_medio_pago.EFECTIVO)}
+                </p>
+                <p className="campo-solo-lectura">
+                  Transferencia (ingresos): {formatoMoneda(vistaPrevia.por_medio_pago.TRANSFERENCIA)}
+                </p>
+                <p className="campo-solo-lectura">QR (ingresos): {formatoMoneda(vistaPrevia.por_medio_pago.QR)}</p>
+                <p className="campo-solo-lectura">Movimientos incluidos: {vistaPrevia.cantidad_movimientos}</p>
                 <p className="campo-solo-lectura">
                   Efectivo esperado: <strong>{formatoMoneda(vistaPrevia.efectivo_esperado)}</strong>
                 </p>
