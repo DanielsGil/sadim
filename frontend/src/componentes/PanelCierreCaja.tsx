@@ -22,10 +22,16 @@ import { fechaHoyBogota, formatoFecha, formatoFechaHora, formatoMoneda } from '.
  * cierres anteriores. La «Diferencia estimada» del arqueo es efectivo contado −
  * efectivo esperado de la vista previa: solo se muestra, nunca se envía; la
  * diferencia que vale es la que calcula el servidor al registrar.
+ *
+ * F-22: las dos pestañas comparten este componente, pero NO la fecha. En
+ * «Resumen del día», «Fecha» filtra el resumen. En «Cierre», «Fecha del
+ * cierre» (dentro de «Arqueo») es solo la fecha contable con que se registra:
+ * no cambia lo que se va a cerrar (D14).
  */
 export function PanelCierreCaja({ vista }: { vista: 'resumen' | 'cierre' }) {
   const { enLinea } = useEstadoLocal()
-  const [fecha, setFecha] = useState(fechaHoyBogota())
+  const [fechaResumen, setFechaResumen] = useState(fechaHoyBogota())
+  const [fechaCierre, setFechaCierre] = useState(fechaHoyBogota())
   const [resumen, setResumen] = useState<ResumenCaja | null>(null)
   const [pendientes, setPendientes] = useState<MovimientoCaja[]>([])
   const [vistaPrevia, setVistaPrevia] = useState<VistaPreviaCierre | null>(null)
@@ -50,7 +56,7 @@ export function PanelCierreCaja({ vista }: { vista: 'resumen' | 'cierre' }) {
     setError(null)
     const carga =
       vista === 'resumen'
-        ? Promise.all([obtenerResumen(fecha), listarPendientes()]).then(([resumenObtenido, pendientesObtenidos]) => {
+        ? Promise.all([obtenerResumen(fechaResumen), listarPendientes()]).then(([resumenObtenido, pendientesObtenidos]) => {
             setResumen(resumenObtenido)
             setPendientes(pendientesObtenidos)
           })
@@ -70,11 +76,12 @@ export function PanelCierreCaja({ vista }: { vista: 'resumen' | 'cierre' }) {
       .finally(() => setCargando(false))
   }
 
-  useEffect(cargarDatos, [fecha, vista, enLinea])
+  // La fecha del cierre no recarga nada: la vista previa no depende de ella (F-22).
+  useEffect(cargarDatos, [fechaResumen, vista, enLinea])
 
-  function cambiarFecha(nueva: string) {
-    setFecha(nueva)
-    // F-4: el mensaje del último cierre se ve hasta cambiar la fecha o registrar otro.
+  function cambiarFechaCierre(nueva: string) {
+    setFechaCierre(nueva)
+    // F-4: el mensaje del último cierre se ve hasta cambiar la fecha del cierre o registrar otro.
     setCierreRegistrado(null)
   }
 
@@ -88,7 +95,7 @@ export function PanelCierreCaja({ vista }: { vista: 'resumen' | 'cierre' }) {
     setCierreRegistrado(null)
     setCerrando(true)
     try {
-      const cierre = await crearCierre(fecha, Number(efectivoContado), observaciones || undefined)
+      const cierre = await crearCierre(fechaCierre, Number(efectivoContado), observaciones || undefined)
       setCierreRegistrado(cierre)
       setEfectivoContado('')
       setObservaciones('')
@@ -102,8 +109,17 @@ export function PanelCierreCaja({ vista }: { vista: 'resumen' | 'cierre' }) {
 
   return (
     <div className="panel-cierre-caja">
-      <label htmlFor="cierre-fecha">Fecha</label>
-      <input id="cierre-fecha" type="date" value={fecha} onChange={(evento) => cambiarFecha(evento.target.value)} />
+      {vista === 'resumen' && (
+        <>
+          <label htmlFor="resumen-fecha">Fecha</label>
+          <input
+            id="resumen-fecha"
+            type="date"
+            value={fechaResumen}
+            onChange={(evento) => setFechaResumen(evento.target.value)}
+          />
+        </>
+      )}
 
       {error && (
         <p className="mensaje-error" role="alert">
@@ -194,6 +210,19 @@ export function PanelCierreCaja({ vista }: { vista: 'resumen' | 'cierre' }) {
           <section className="formulario-panel">
             <h3>Arqueo</h3>
             <form onSubmit={manejarCierre}>
+              <label htmlFor="cierre-fecha">Fecha del cierre</label>
+              <input
+                id="cierre-fecha"
+                type="date"
+                value={fechaCierre}
+                onChange={(evento) => cambiarFechaCierre(evento.target.value)}
+                aria-describedby="cierre-fecha-ayuda"
+                required
+              />
+              <p id="cierre-fecha-ayuda" className="campo-solo-lectura">
+                Fecha con la que queda registrado este cierre. No cambia lo que se va a cerrar.
+              </p>
+
               <label htmlFor="cierre-efectivo-contado">Efectivo contado</label>
               <input
                 id="cierre-efectivo-contado"
