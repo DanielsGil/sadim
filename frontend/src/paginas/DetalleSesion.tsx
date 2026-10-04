@@ -118,7 +118,8 @@ export function DetalleSesion() {
   }, [mesaId])
 
   // E-12: con productos en la bandeja, un clic en cualquier enlace del menú o
-  // de la app no navega directo: primero pregunta. Recargar o cerrar la
+  // de la app no navega directo: primero avisa que la bandeja queda guardada
+  // (F-23: salir no la vacía). Recargar o cerrar la
   // pestaña muestra el aviso del navegador. Nunca se envía nada solo.
   const hayBandeja = bandeja.length > 0
   useEffect(() => {
@@ -507,22 +508,24 @@ export function DetalleSesion() {
           <div className="dialogo" role="alertdialog" aria-modal="true" aria-labelledby="dialogo-salida-titulo">
             <h3 id="dialogo-salida-titulo">Productos sin agregar</h3>
             <p>
-              Hay {unidadesEnBandeja(bandeja)} producto(s) en la bandeja que no se han agregado a la mesa.
-              Si sales, se descartan.
+              Hay {unidadesEnBandeja(bandeja)} producto(s) en la bandeja que todavía no se han agregado a la
+              mesa. Quedan guardados en la bandeja hasta que los agregues o los quites.
             </p>
             <div className="acciones-formulario">
               <button type="button" className="boton-secundario" onClick={() => setSalidaPendiente(null)}>
                 Quedarme
               </button>
+              {/* F-23: salir no vacía la bandeja (E-19): queda guardada para esta mesa,
+                  igual que con el gesto «atrás». */}
               <button
                 type="button"
                 onClick={() => {
                   const destino = salidaPendiente
                   setSalidaPendiente(null)
-                  void vaciarBandeja().then(() => navigate(destino))
+                  navigate(destino)
                 }}
               >
-                Salir sin agregarlos
+                Salir
               </button>
             </div>
           </div>
