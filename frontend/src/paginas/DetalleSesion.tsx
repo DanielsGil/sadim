@@ -206,7 +206,7 @@ export function DetalleSesion() {
             navigate('/ventas')
             return
           }
-          setError(mensajeErrorApi(err, 'No se pudo abrir la sesión.'))
+          setError(mensajeErrorApi(err, 'No se pudo abrir la cuenta.'))
           return
         }
         creadaEnEsteIntento = true
@@ -243,7 +243,7 @@ export function DetalleSesion() {
       const ventas = await listarVentas({ mesaId, estado: 'ABIERTA' })
       setVenta(ventas[0] ?? null)
     } catch (err) {
-      setError(mensajeErrorApi(err, 'No se pudo actualizar la sesión.'))
+      setError(mensajeErrorApi(err, 'No se pudo actualizar la cuenta.'))
     } finally {
       setAgregando(false)
     }
