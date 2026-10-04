@@ -8,6 +8,7 @@ import { PanelMovimientoInventario } from '../componentes/PanelMovimientoInventa
 import { useSesion } from '../contexto/SesionContext'
 import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { Categoria, MovimientoInventario, StockProducto } from '../tipos/dominio'
+import { etiquetaMovimientoInventario } from '../utilidades/etiquetas'
 import { formatoFechaHora } from '../utilidades/formato'
 
 /**
@@ -172,7 +173,7 @@ export function Inventario() {
                 <tbody>
                   {historial.map((movimiento) => (
                     <tr key={movimiento.id}>
-                      <td>{movimiento.tipo}{movimiento.sentido ? ` (${movimiento.sentido})` : ''}</td>
+                      <td>{etiquetaMovimientoInventario(movimiento)}</td>
                       <td>{movimiento.cantidad}</td>
                       <td>{formatoFechaHora(movimiento.fecha)}</td>
                       <td>{movimiento.motivo ?? '—'}</td>

@@ -4,6 +4,7 @@ import { listarNovedades, marcarNovedadAtendida } from '../api/novedades'
 import { baseLocal } from '../db/baseLocal'
 import { estaEnLinea } from '../sync/cacheCatalogo'
 import type { Novedad } from '../tipos/dominio'
+import { etiquetaRecursoSync } from '../utilidades/etiquetas'
 import { formatoFechaHora } from '../utilidades/formato'
 
 /**
@@ -90,7 +91,7 @@ export function Novedades() {
           <tbody>
             {novedades.map((novedad) => (
               <tr key={novedad.operation_id}>
-                <td>{novedad.recurso}</td>
+                <td>{etiquetaRecursoSync(novedad.recurso)}</td>
                 <td>{novedad.codigo_conflicto ?? '—'}</td>
                 <td>{novedad.mensaje ?? '—'}</td>
                 <td>{formatoFechaHora(novedad.fecha_cliente)}</td>
