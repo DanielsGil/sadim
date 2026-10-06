@@ -6,6 +6,7 @@ import { erroresPorCampo } from '../api/erroresPorCampo'
 import { mensajeErrorApi } from '../api/errorApi'
 import {
   cambiarEstadoOrden,
+  cancelarOrden,
   listarConsumos,
   obtenerCostos,
   obtenerOrden,
@@ -34,6 +35,7 @@ const ETIQUETA_ESTADO: Record<EstadoOrden, string> = {
   EN_PROCESO: 'En proceso',
   LISTO: 'Listo',
   ENTREGADO: 'Entregado',
+  CANCELADA: 'Cancelada',
 }
 
 const SIGUIENTE_ESTADO: Record<EstadoOrden, EstadoOrden | null> = {
@@ -41,6 +43,7 @@ const SIGUIENTE_ESTADO: Record<EstadoOrden, EstadoOrden | null> = {
   EN_PROCESO: 'LISTO',
   LISTO: 'ENTREGADO',
   ENTREGADO: null,
+  CANCELADA: null,
 }
 
 const ETIQUETA_MEDIO_PAGO: Record<MedioPago, string> = {
@@ -67,6 +70,8 @@ export function DetalleOrden() {
   const [error, setError] = useState<string | null>(null)
   const [procesando, setProcesando] = useState(false)
   const [confirmandoEntrega, setConfirmandoEntrega] = useState(false)
+  const [dialogoCancelar, setDialogoCancelar] = useState(false)
+  const [motivoCancelacion, setMotivoCancelacion] = useState('')
 
   const [valorAbono, setValorAbono] = useState('')
   const [medioPagoAbono, setMedioPagoAbono] = useState<MedioPago | ''>('')
@@ -133,6 +138,23 @@ export function DetalleOrden() {
       recargar()
     } catch (err) {
       setError(mensajeErrorApi(err, 'No se pudo avanzar el estado de la orden.'))
+    } finally {
+      setProcesando(false)
+    }
+  }
+
+  async function manejarCancelar() {
+    if (!orden || !motivoCancelacion.trim()) return
+    setError(null)
+    setProcesando(true)
+    try {
+      await cancelarOrden(orden.id, motivoCancelacion.trim())
+      setDialogoCancelar(false)
+      setMotivoCancelacion('')
+      recargar()
+    } catch (err) {
+      setDialogoCancelar(false)
+      setError(mensajeErrorApi(err, 'No se pudo cancelar la orden.'))
     } finally {
       setProcesando(false)
     }
@@ -209,6 +231,10 @@ export function DetalleOrden() {
   }
 
   const siguienteEstado = SIGUIENTE_ESTADO[orden.estado]
+  const cancelada = orden.estado === 'CANCELADA'
+  // D29: se cancela en RECIBIDO, EN_PROCESO o LISTO; un abono no ANULADO lo impide.
+  const puedeCancelarse = !cancelada && orden.estado !== 'ENTREGADO'
+  const tieneAbonosVigentes = orden.abonos.some((abono) => abono.estado_pago !== 'ANULADO')
 
   return (
     <div className="pagina-detalle-orden">
@@ -235,6 +261,12 @@ export function DetalleOrden() {
         <p className="campo-solo-lectura">Encargo: {orden.descripcion}</p>
         <p className="campo-solo-lectura">Entrega estimada: {formatoFecha(orden.fecha_entrega_estimada)}</p>
         <p className="campo-solo-lectura">Estado: <strong>{ETIQUETA_ESTADO[orden.estado]}</strong></p>
+        {cancelada && (
+          <p className="campo-solo-lectura">
+            Motivo de la cancelación: {orden.motivo_cancelacion ?? '—'}
+            {orden.fecha_cancelacion && ` (${formatoFechaHora(orden.fecha_cancelacion)})`}
+          </p>
+        )}
         <p className="campo-solo-lectura">Costo total: {formatoMoneda(orden.costo_total)}</p>
         <p className="campo-solo-lectura">
           Saldo pendiente: <strong>{formatoMoneda(orden.saldo_pendiente)}</strong>
@@ -260,7 +292,57 @@ export function DetalleOrden() {
             )}
           </div>
         )}
+
+        {esAdmin && puedeCancelarse && (
+          <div className="acciones-formulario">
+            <button
+              type="button"
+              className="boton-secundario"
+              disabled={procesando || tieneAbonosVigentes}
+              onClick={() => setDialogoCancelar(true)}
+            >
+              Cancelar orden
+            </button>
+            {tieneAbonosVigentes && (
+              <p className="campo-solo-lectura">
+                No se puede cancelar: la orden tiene abonos. Si un pago electrónico no llegó, primero
+                anúlalo en Caja › Pagos pendientes; los abonos anulados no impiden cancelar.
+              </p>
+            )}
+          </div>
+        )}
       </section>
+
+      {dialogoCancelar && (
+        <div className="dialogo-fondo" role="presentation">
+          <div className="dialogo" role="alertdialog" aria-modal="true" aria-labelledby="dialogo-cancelar-titulo">
+            <h3 id="dialogo-cancelar-titulo">Cancelar orden</h3>
+            <p>
+              La orden de {orden.cliente_nombre} quedará CANCELADA y no admitirá más cambios. Sus consumos
+              pendientes nunca se descontarán del inventario.
+            </p>
+            <label htmlFor="orden-motivo-cancelacion">Motivo (obligatorio)</label>
+            <input
+              id="orden-motivo-cancelacion"
+              value={motivoCancelacion}
+              maxLength={255}
+              onChange={(evento) => setMotivoCancelacion(evento.target.value)}
+            />
+            <div className="acciones-formulario">
+              <button type="button" className="boton-secundario" onClick={() => setDialogoCancelar(false)}>
+                Volver
+              </button>
+              <button
+                type="button"
+                disabled={procesando || !motivoCancelacion.trim()}
+                onClick={() => void manejarCancelar()}
+              >
+                Sí, cancelar orden
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className="formulario-panel">
         <h3>Abonos</h3>
@@ -290,6 +372,8 @@ export function DetalleOrden() {
           </tbody>
         </table>
 
+        {!cancelada && (
+        <>
         <label htmlFor="orden-abono-valor">Valor del abono</label>
         <input
           id="orden-abono-valor"
@@ -328,6 +412,8 @@ export function DetalleOrden() {
             Registrar abono
           </button>
         </div>
+        </>
+        )}
       </section>
 
       <section className="formulario-panel">
@@ -356,7 +442,7 @@ export function DetalleOrden() {
           </tbody>
         </table>
 
-        {orden.estado !== 'ENTREGADO' && (
+        {orden.estado !== 'ENTREGADO' && !cancelada && (
           <>
             <label htmlFor="orden-consumo-producto">Producto</label>
             <select
@@ -415,7 +501,7 @@ export function DetalleOrden() {
             </tbody>
           </table>
 
-          {orden.estado !== 'ENTREGADO' && (
+          {orden.estado !== 'ENTREGADO' && !cancelada && (
             <>
               <label htmlFor="orden-costo-concepto">Concepto</label>
               <input

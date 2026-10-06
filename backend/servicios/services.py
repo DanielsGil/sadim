@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from core.exceptions import ErrorNegocio
 from core.models import ConfiguracionPago
+from core.permissions import verificar_rol_admin
 from finanzas.models import MovimientoCaja
 from inventario.models import Producto
 from inventario.services import crear_salida_servicio
@@ -34,6 +35,16 @@ def _validar_medio_pago_habilitado(medio_pago):
             code='DATOS_INVALIDOS',
             message=f'El medio de pago {medio_pago} no está habilitado en esta instalación.',
             status_code=400,
+        )
+
+
+def _verificar_no_cancelada(orden):
+    """D29: sobre una orden CANCELADA ninguna operación procede (409 ORDEN_CANCELADA)."""
+    if orden.estado == OrdenTrabajo.Estado.CANCELADA:
+        raise ErrorNegocio(
+            code='ORDEN_CANCELADA',
+            message='La orden fue cancelada; no admite más operaciones.',
+            status_code=409,
         )
 
 
@@ -147,6 +158,7 @@ def cambiar_estado(*, orden, nuevo_estado, usuario, fecha=None):
     ORDEN_YA_ENTREGADA. El paso a ENTREGADO es atómico (R-15).
     """
     orden = OrdenTrabajo.objects.select_for_update().get(pk=orden.pk)
+    _verificar_no_cancelada(orden)
 
     if orden.estado == OrdenTrabajo.Estado.ENTREGADO:
         raise ErrorNegocio(
@@ -191,6 +203,7 @@ def registrar_abono(*, orden, usuario, operation_id, valor, medio_pago, observac
     porque un cliente puede seguir abonando incluso tras la entrega.
     """
     orden = OrdenTrabajo.objects.select_for_update().get(pk=orden.pk)
+    _verificar_no_cancelada(orden)
 
     if valor > orden.saldo_pendiente:
         raise ErrorNegocio(
@@ -238,6 +251,7 @@ def registrar_abono(*, orden, usuario, operation_id, valor, medio_pago, observac
 
 def registrar_consumo(*, orden, usuario, operation_id, producto, cantidad, id=None, fecha=None):
     """Contrato v2 §8 (CU-09, R-15): no valida existencias al registrarse."""
+    _verificar_no_cancelada(orden)
     if orden.estado == OrdenTrabajo.Estado.ENTREGADO:
         raise ErrorNegocio(
             code='ORDEN_YA_ENTREGADA',
@@ -270,6 +284,7 @@ def registrar_consumo(*, orden, usuario, operation_id, producto, cantidad, id=No
 def registrar_costo(*, orden, usuario, operation_id, concepto, valor, id=None):
     """Contrato v2 §8 (CU-10, R-16). Recalcula utilidad_neta = costo_total - suma de costos."""
     orden = OrdenTrabajo.objects.select_for_update().get(pk=orden.pk)
+    _verificar_no_cancelada(orden)
 
     if orden.estado == OrdenTrabajo.Estado.ENTREGADO:
         raise ErrorNegocio(
@@ -286,3 +301,46 @@ def registrar_costo(*, orden, usuario, operation_id, concepto, valor, id=None):
     orden.utilidad_neta = orden.costo_total - total_costos
     orden.save(update_fields=['utilidad_neta'])
     return costo
+
+
+# ---------------------------------------------------------------------------
+# D29 (Lote 7, E-20) — cancelar orden (solo ADMIN)
+# ---------------------------------------------------------------------------
+
+def cancelar_orden(*, orden, usuario, motivo, fecha=None):
+    """
+    D29: PATCH /api/ordenes-trabajo/{id}/cancelar/. Solo en RECIBIDO,
+    EN_PROCESO o LISTO (sobre ENTREGADO → 409 ORDEN_YA_ENTREGADA; sobre
+    CANCELADA → 409 ORDEN_CANCELADA). Un abono que no esté ANULADO (incluidos
+    los PENDIENTE_VERIFICACION) bloquea con 409 ORDEN_CON_ABONOS. Los consumos
+    PENDIENTE quedan así para siempre: nunca se aplican al inventario.
+    `fecha` (D18): fecha_cliente cuando llega por /api/sync/.
+    """
+    verificar_rol_admin(usuario)
+    orden = OrdenTrabajo.objects.select_for_update().get(pk=orden.pk)
+    _verificar_no_cancelada(orden)
+
+    if orden.estado == OrdenTrabajo.Estado.ENTREGADO:
+        raise ErrorNegocio(
+            code='ORDEN_YA_ENTREGADA',
+            message='La orden ya fue entregada.',
+            status_code=409,
+        )
+
+    if orden.abonos.exclude(estado_pago=Abono.EstadoPago.ANULADO).exists():
+        raise ErrorNegocio(
+            code='ORDEN_CON_ABONOS',
+            message=(
+                'La orden tiene abonos registrados y no se puede cancelar. '
+                'Si un pago electrónico no llegó, primero anule ese abono en Caja '
+                '(pagos pendientes); los abonos anulados no bloquean la cancelación.'
+            ),
+            status_code=409,
+        )
+
+    orden.estado = OrdenTrabajo.Estado.CANCELADA
+    orden.motivo_cancelacion = motivo
+    orden.cancelada_por = usuario
+    orden.fecha_cancelacion = fecha or timezone.now()
+    orden.save(update_fields=['estado', 'motivo_cancelacion', 'cancelada_por', 'fecha_cancelacion'])
+    return orden

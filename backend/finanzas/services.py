@@ -42,8 +42,13 @@ def _estado_pago_para(medio_pago):
 # HU-029 — gastos
 # ---------------------------------------------------------------------------
 
-def registrar_gasto(*, usuario, operation_id, medio_pago, valor, concepto, id=None, fecha=None):
-    """Contrato v2 §10 (CU-14, R-21): POST /api/movimientos-caja/, ambos roles."""
+def registrar_gasto(*, usuario, operation_id, medio_pago, valor, concepto, id=None, fecha=None,
+                    movimiento_inventario=None):
+    """
+    Contrato v2 §10 (CU-14, R-21): POST /api/movimientos-caja/, ambos roles.
+    `movimiento_inventario` (D31): la ENTRADA de mercancía cuya compra paga
+    este gasto; solo la pasa inventario.services.registrar_entrada.
+    """
     _validar_medio_pago_habilitado(medio_pago)
 
     ahora = fecha or timezone.now()
@@ -59,6 +64,7 @@ def registrar_gasto(*, usuario, operation_id, medio_pago, valor, concepto, id=No
         concepto=concepto,
         fecha=ahora,
         fecha_confirmacion=ahora if estado_pago == MovimientoCaja.EstadoPago.CONFIRMADO else None,
+        movimiento_inventario=movimiento_inventario,
     )
 
 

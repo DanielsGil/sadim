@@ -13,6 +13,7 @@ from .models import Abono, ConsumoOrden, CostoOperativoOrden, OrdenTrabajo
 from .serializers import (
     AbonoSerializer,
     CambiarEstadoSerializer,
+    CancelarOrdenSerializer,
     ConsumoOrdenSerializer,
     CostoOperativoOrdenSerializer,
     OrdenTrabajoCrearSerializer,
@@ -22,7 +23,14 @@ from .serializers import (
     RegistrarConsumoSerializer,
     RegistrarCostoSerializer,
 )
-from .services import cambiar_estado, crear_orden, registrar_abono, registrar_consumo, registrar_costo
+from .services import (
+    cambiar_estado,
+    cancelar_orden,
+    crear_orden,
+    registrar_abono,
+    registrar_consumo,
+    registrar_costo,
+)
 
 
 class OrdenTrabajoViewSet(
@@ -41,7 +49,7 @@ class OrdenTrabajoViewSet(
     modulo = 'servicios'
 
     def get_permissions(self):
-        if self.action == 'costos':
+        if self.action in ('costos', 'cancelar'):
             return [EsAdmin(), ModuloActivoPermission()]
         return [EsAdminUOperador(), ModuloActivoPermission()]
 
@@ -57,6 +65,10 @@ class OrdenTrabajoViewSet(
         estado = self.request.query_params.get('estado')
         if estado:
             queryset = queryset.filter(estado=estado)
+        elif self.action == 'list':
+            # D29: el listado no mezcla las canceladas con las activas; se ven
+            # con ?estado=CANCELADA.
+            queryset = queryset.exclude(estado=OrdenTrabajo.Estado.CANCELADA)
         return queryset
 
     def _obtener_orden(self, pk):
@@ -106,6 +118,36 @@ class OrdenTrabajoViewSet(
 
         def _estado_actual(objeto_id):
             return _respuesta_estado(OrdenTrabajo.objects.get(pk=objeto_id))
+
+        datos_respuesta, status_code = ejecutar_con_idempotencia(
+            operation_id=operation_id,
+            usuario=request.user,
+            recurso='ordenes_trabajo',
+            accion=OperacionSincronizacion.Accion.UPDATE,
+            ejecutar=_ejecutar,
+            obtener_estado_actual=_estado_actual,
+        )
+        return Response(datos_respuesta, status=status_code)
+
+    @action(detail=True, methods=['patch'], url_path='cancelar')
+    def cancelar(self, request, pk=None):
+        """D29: solo ADMIN, motivo obligatorio, idempotente por operation_id."""
+        orden = self._obtener_orden(pk)
+        serializer = CancelarOrdenSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        datos = serializer.validated_data
+        operation_id = datos.pop('operation_id', None) or uuid.uuid4()
+
+        def _ejecutar():
+            orden_cancelada = cancelar_orden(orden=orden, usuario=request.user, motivo=datos['motivo'])
+            return orden_cancelada.pk, OrdenTrabajoSerializer(
+                orden_cancelada, context=self.get_serializer_context(),
+            ).data, 200
+
+        def _estado_actual(objeto_id):
+            return OrdenTrabajoSerializer(
+                OrdenTrabajo.objects.get(pk=objeto_id), context=self.get_serializer_context(),
+            ).data
 
         datos_respuesta, status_code = ejecutar_con_idempotencia(
             operation_id=operation_id,

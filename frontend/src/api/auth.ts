@@ -1,4 +1,4 @@
-import { borrarSesion, guardarSesion, guardarUltimaActividad } from '../db/baseLocal'
+import { borrarSesion, borrarVerificadorLocal, guardarSesion, guardarUltimaActividad } from '../db/baseLocal'
 import type { Sesion } from '../tipos/dominio'
 import { peticion } from './cliente'
 
@@ -10,12 +10,16 @@ export async function iniciarSesion(username: string, password: string): Promise
   })
   const sesion: Sesion = { ...respuesta, username }
   await guardarSesion(sesion)
-  // F-20: la cuenta de inactividad empieza al iniciar sesión.
+  // F-20/D30: la cuenta de inactividad empieza al iniciar sesión.
   await guardarUltimaActividad(Date.now())
   return sesion
 }
 
-/** Borra la sesión y la última actividad (F-20); nunca la cola ni la copia local. */
+/**
+ * Cierre de sesión MANUAL (D21): borra la sesión, la última actividad y el
+ * verificador local de la contraseña (D30); nunca la cola ni la copia local.
+ */
 export async function cerrarSesion(): Promise<void> {
   await borrarSesion()
+  await borrarVerificadorLocal()
 }

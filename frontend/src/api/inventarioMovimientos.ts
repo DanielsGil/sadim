@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid'
 import { guardarCopiaLectura, obtenerSesion } from '../db/baseLocal'
-import type { MovimientoInventario } from '../tipos/dominio'
+import type { MedioPago, MovimientoInventario } from '../tipos/dominio'
 import { estaEnLinea } from '../sync/cacheCatalogo'
 import { escribir } from '../sync/enrutador'
 import { hayPendientesDe } from '../sync/pendientes'
@@ -39,6 +39,9 @@ interface DatosMovimiento {
   cantidad: number
   motivo: string
   sentido?: 'SUMA' | 'RESTA'
+  /** D31: costo de la compra (solo ENTRADA); con él, medio_pago es obligatorio. */
+  costoTotal?: number
+  medioPago?: MedioPago
 }
 
 function registrarMovimiento(datos: DatosMovimiento): Promise<MovimientoInventario> {
@@ -49,6 +52,7 @@ function registrarMovimiento(datos: DatosMovimiento): Promise<MovimientoInventar
     ...(datos.sentido ? { sentido: datos.sentido } : {}),
     cantidad: datos.cantidad,
     motivo: datos.motivo,
+    ...(datos.costoTotal !== undefined ? { costo_total: datos.costoTotal, medio_pago: datos.medioPago } : {}),
   }
   const resta = datos.tipo === 'MERMA' || (datos.tipo === 'AJUSTE_MANUAL' && datos.sentido === 'RESTA')
 
@@ -81,8 +85,13 @@ function registrarMovimiento(datos: DatosMovimiento): Promise<MovimientoInventar
   })
 }
 
-export function registrarEntrada(productoId: string, cantidad: number, motivo: string): Promise<MovimientoInventario> {
-  return registrarMovimiento({ productoId, tipo: 'ENTRADA', cantidad, motivo })
+export function registrarEntrada(
+  productoId: string,
+  cantidad: number,
+  motivo: string,
+  compra?: { costoTotal: number; medioPago: MedioPago },
+): Promise<MovimientoInventario> {
+  return registrarMovimiento({ productoId, tipo: 'ENTRADA', cantidad, motivo, ...compra })
 }
 
 export function registrarMerma(productoId: string, cantidad: number, motivo: string): Promise<MovimientoInventario> {

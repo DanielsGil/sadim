@@ -10,9 +10,10 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from core.models import ConfiguracionModulo, ConfiguracionPago
+from inventario.models import Categoria, Producto
 from servicios.models import Abono, OrdenTrabajo
 from usuarios.models import Usuario
-from ventas.models import Venta
+from ventas.models import DetalleVenta, Mesa, Venta
 
 from .models import CierreCaja, MovimientoCaja
 
@@ -543,3 +544,65 @@ class ConcurrenciaCierreTests(TransactionTestCase):
         self.assertEqual(CierreCaja.objects.filter(fecha=timezone.localdate()).count(), 1)
         cierre = CierreCaja.objects.get(fecha=timezone.localdate())
         self.assertEqual(cierre.movimientos.count(), 3)
+
+
+class OrigenPagosTests(FinanzasAPITestCase):
+    """E-21 (Lote 7): pendientes e histórico del ADMIN incluyen `origen`."""
+
+    def test_pendiente_de_venta_de_mesa_con_productos(self):
+        categoria = Categoria.objects.create(nombre='Platos')
+        carne = Producto.objects.create(
+            categoria=categoria, nombre='Carne Arroz', tipo='REVENTA_DIRECTA',
+            precio_venta=3500, unidad_medida='plato', controla_stock=False,
+        )
+        coca = Producto.objects.create(
+            categoria=categoria, nombre='Coca Cola 350', tipo='REVENTA_DIRECTA',
+            precio_venta=2400, unidad_medida='unidad', controla_stock=False,
+        )
+        venta, _movimiento = self._crear_venta_pendiente(valor=Decimal('9400.00'))
+        venta.tipo = Venta.Tipo.SESION_DINAMICA
+        venta.mesa = Mesa.objects.create(numero=3)
+        venta.save()
+        for producto, cantidad in ((carne, 1), (carne, 1), (coca, 1)):
+            DetalleVenta.objects.create(
+                venta=venta, producto=producto, cantidad=cantidad,
+                precio_unitario=producto.precio_venta, subtotal=producto.precio_venta * cantidad,
+            )
+
+        response = self.c_operador.get('/api/movimientos-caja/pendientes/')
+
+        origen = response.data[0]['origen']
+        self.assertEqual(origen['tipo'], 'VENTA')
+        self.assertEqual(origen['descripcion'], 'Mesa 3')
+        self.assertEqual(origen['mesa_numero'], 3)
+        self.assertEqual(origen['cobrado_por'], 'Admin Uno')
+        self.assertIsNotNone(origen['fecha'])
+        self.assertEqual(
+            sorted((p['nombre'], p['cantidad']) for p in origen['productos']),
+            [('Carne Arroz', Decimal('2')), ('Coca Cola 350', Decimal('1'))],
+        )
+
+    def test_pendiente_de_venta_rapida_y_de_abono(self):
+        self._crear_venta_pendiente()
+        orden = self._crear_orden()
+        self._crear_abono_pendiente(orden)
+
+        datos = self.c_admin.get('/api/movimientos-caja/pendientes/').data
+
+        por_tipo = {m['tipo']: m['origen'] for m in datos}
+        self.assertEqual(por_tipo['INGRESO_VENTA']['descripcion'], 'Venta rápida')
+        self.assertIsNone(por_tipo['INGRESO_VENTA']['mesa_numero'])
+        self.assertEqual(por_tipo['INGRESO_VENTA']['productos'], [])
+        self.assertEqual(por_tipo['INGRESO_ABONO']['tipo'], 'ABONO')
+        self.assertEqual(por_tipo['INGRESO_ABONO']['cliente_nombre'], 'Laura Méndez')
+        self.assertEqual(por_tipo['INGRESO_ABONO']['orden_id'], str(orden.id))
+
+    def test_historico_admin_incluye_origen_de_gasto(self):
+        self.c_admin.post('/api/movimientos-caja/', {
+            'tipo': 'GASTO', 'medio_pago': 'EFECTIVO', 'valor': '8000', 'concepto': 'Hielo',
+        }, format='json')
+
+        datos = self.c_admin.get('/api/movimientos-caja/').data
+        lista = datos['results'] if isinstance(datos, dict) else datos
+
+        self.assertEqual(lista[0]['origen'], {'tipo': 'GASTO', 'concepto': 'Hielo'})

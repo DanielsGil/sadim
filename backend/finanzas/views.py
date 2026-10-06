@@ -15,6 +15,7 @@ from .serializers import (
     CierreCajaSerializer,
     ConfirmarMovimientoSerializer,
     CrearCierreSerializer,
+    MovimientoCajaConOrigenSerializer,
     MovimientoCajaSerializer,
     RegistrarGastoSerializer,
     ResumenQuerySerializer,
@@ -58,7 +59,15 @@ class MovimientoCajaViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             queryset = queryset.filter(fecha__date__lte=fecha_hasta)
         if tipo:
             queryset = queryset.filter(tipo=tipo)
+        if self.action == 'list':
+            queryset = MovimientoCajaConOrigenSerializer.preparar(queryset)
         return queryset
+
+    def get_serializer_class(self):
+        # E-21: el histórico del ADMIN lleva el mismo `origen` que los pendientes.
+        if self.action == 'list':
+            return MovimientoCajaConOrigenSerializer
+        return MovimientoCajaSerializer
 
     def _obtener_movimiento(self, pk):
         try:
@@ -92,10 +101,12 @@ class MovimientoCajaViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
     @action(detail=False, methods=['get'], url_path='pendientes')
     def pendientes(self, request):
-        queryset = MovimientoCaja.objects.filter(
-            estado_pago=MovimientoCaja.EstadoPago.PENDIENTE_VERIFICACION,
-        ).order_by('fecha')
-        return Response(MovimientoCajaSerializer(queryset, many=True).data)
+        queryset = MovimientoCajaConOrigenSerializer.preparar(
+            MovimientoCaja.objects.filter(
+                estado_pago=MovimientoCaja.EstadoPago.PENDIENTE_VERIFICACION,
+            ).order_by('fecha')
+        )
+        return Response(MovimientoCajaConOrigenSerializer(queryset, many=True).data)
 
     @action(detail=False, methods=['get'], url_path='resumen')
     def resumen(self, request):

@@ -1,98 +1,69 @@
 /**
- * D27 (E-11, Lote de correcciones 4): cierre de sesión por inactividad.
- * ÚNICA constante para cambiar los tiempos: 30 minutos sin interacción y
- * aviso 1 minuto antes. `reintentoMs` es cada cuánto se vuelve a intentar
- * el cierre si en el momento de expirar no se pudo (sin conexión, con cola o sin respuesta del servidor).
+ * D30 (E-22, Lote de correcciones 7; reemplaza a D27, incluidos F-19 y F-20):
+ * la app ya no cierra la sesión sola, se BLOQUEA. ÚNICA constante con los dos
+ * tiempos: se bloquea al volver a la app (abrirla o traerla al frente) si
+ * pasaron más de `regresoMs` desde la última interacción, y con la app
+ * abierta a los `inactividadMs` sin interacción, con un aviso `avisoMs` antes.
  */
-export const INACTIVIDAD_SESION = {
-  limiteMs: 30 * 60 * 1000,
+export const BLOQUEO_SESION = {
+  regresoMs: 5 * 60 * 1000,
+  inactividadMs: 15 * 60 * 1000,
   avisoMs: 60 * 1000,
-  reintentoMs: 15 * 1000,
 } as const
 
-/**
- * ACTIVA: todo normal. AVISO: falta un minuto; cualquier interacción lo cancela.
- * EXPIRADA_PENDIENTE: se cumplió el tiempo pero no se pudo cerrar (sin
- * conexión, con operaciones en la cola o con el servidor sin responder,
- * D21/D23/F-19); se reintenta hasta poder,
- * salvo que el usuario vuelva a interactuar (E-15): ahí la cuenta empieza de nuevo.
- */
-export type EstadoInactividad = 'ACTIVA' | 'AVISO' | 'EXPIRADA_PENDIENTE'
+/** ACTIVA: todo normal. AVISO: falta un minuto para bloquear; cualquier interacción lo cancela. */
+export type EstadoInactividad = 'ACTIVA' | 'AVISO'
 
 /**
- * F-20: estado inicial de la cuenta al abrir la app con una sesión guardada,
- * a partir de `meta.ultima_actividad`. Función pura para poder probarla.
- * - Sin valor guardado (sesión de antes de F-20): la cuenta empieza ahora.
- * - Valor en el futuro (reloj del equipo cambiado): se toma como ahora.
- * - `vencida` = pasaron `limiteMs` o más: se aplica de inmediato la regla de
- *   cierre (cerrar si se puede; si no, EXPIRADA_PENDIENTE).
- * Ejemplo: el operador cerró la app a las 3:00 p. m. y la abre a las 3:10:
- * le quedan 20 minutos. Si la abre a las 3:45, la cuenta ya venció.
+ * Caso 1 de D30: al abrir la app o traerla al frente, ¿pasaron más de
+ * `regresoMs` desde la última interacción (`meta.ultima_actividad`, F-20)?
+ * Función pura para poder probarla. Sin valor guardado (sesión de antes de
+ * F-20) no se bloquea; un valor en el futuro (reloj cambiado) se toma como ahora.
+ * Ejemplo: el operador guarda la tablet a las 3:00 p. m. y la saca a las 3:04 —
+ * sigue trabajando; si la saca a las 3:06, ve la pantalla de bloqueo.
  */
-export function calcularInicioInactividad(
+export function debeBloquearAlVolver(
   ultimaActividadMs: number | undefined,
   ahoraMs: number,
-  limiteMs: number = INACTIVIDAD_SESION.limiteMs,
-): { transcurridoMs: number; vencida: boolean } {
-  if (ultimaActividadMs === undefined || !Number.isFinite(ultimaActividadMs)) {
-    return { transcurridoMs: 0, vencida: false }
-  }
-  const transcurridoMs = Math.max(0, ahoraMs - ultimaActividadMs)
-  return { transcurridoMs, vencida: transcurridoMs >= limiteMs }
+  regresoMs: number = BLOQUEO_SESION.regresoMs,
+): boolean {
+  if (ultimaActividadMs === undefined || !Number.isFinite(ultimaActividadMs)) return false
+  return ahoraMs - ultimaActividadMs > regresoMs
 }
 
 interface Opciones {
-  limiteMs?: number
+  inactividadMs?: number
   avisoMs?: number
-  reintentoMs?: number
-  /**
-   * true si se puede cerrar: hay red, la cola de sincronización está vacía y
-   * el servidor responde (F-19). Es asíncrona: mientras corre, el temporizador
-   * no lanza otra comprobación ni cierra si hubo actividad entretanto.
-   */
-  puedeCerrar: () => Promise<boolean>
-  /** Cierra la sesión (borra tokens, nunca la cola ni la copia local) y lleva al login. */
-  cerrar: () => Promise<void> | void
+  /** Bloquea la app (nunca borra la cola, la copia local ni las bandejas). */
+  bloquear: () => void
   alCambiarEstado: (estado: EstadoInactividad) => void
 }
 
 /**
- * Lógica pura del temporizador, sin React ni DOM, para poder probarla con
- * relojes simulados. Ejemplo en la cafetería: el operador deja la tablet en el
- * mostrador a las 3:00 p. m.; a las 3:29 aparece el aviso y a las 3:30 la app
- * vuelve al login — salvo que haya ventas sin sincronizar, no haya internet o
- * el servidor no conteste (por ejemplo, wifi del local sin salida a internet):
- * en ese caso solo avisa y cierra apenas todo quede sincronizado.
+ * Caso 2 de D30: temporizador de inactividad con la app abierta. Lógica pura,
+ * sin React ni DOM, para poder probarla con relojes simulados. Ejemplo: la
+ * tablet queda en el mostrador a las 3:00 p. m.; a las 3:14 aparece el aviso y
+ * a las 3:15 la app se bloquea — sin cerrar la sesión ni tocar la cola.
  */
 export class TemporizadorInactividad {
-  private readonly limiteMs: number
+  private readonly inactividadMs: number
   private readonly avisoMs: number
-  private readonly reintentoMs: number
   private readonly opciones: Opciones
   private estado: EstadoInactividad = 'ACTIVA'
   private temporizadores: ReturnType<typeof setTimeout>[] = []
   private detenido = true
-  /** F-19: hay una comprobación de `puedeCerrar` en curso; evita cierres dobles. */
-  private comprobando = false
-  /** Cambia con cada reinicio de la cuenta; si cambió durante la comprobación, no se cierra. */
-  private ciclo = 0
 
   constructor(opciones: Opciones) {
     this.opciones = opciones
-    this.limiteMs = opciones.limiteMs ?? INACTIVIDAD_SESION.limiteMs
-    this.avisoMs = opciones.avisoMs ?? INACTIVIDAD_SESION.avisoMs
-    this.reintentoMs = opciones.reintentoMs ?? INACTIVIDAD_SESION.reintentoMs
+    this.inactividadMs = opciones.inactividadMs ?? BLOQUEO_SESION.inactividadMs
+    this.avisoMs = opciones.avisoMs ?? BLOQUEO_SESION.avisoMs
   }
 
   get estadoActual(): EstadoInactividad {
     return this.estado
   }
 
-  /**
-   * F-20: `transcurridoMs` es el tiempo que ya pasó sin actividad (por ejemplo,
-   * con la app cerrada); la cuenta sigue desde ahí. Si ya alcanzó el límite,
-   * se intenta cerrar de inmediato.
-   */
+  /** `transcurridoMs`: tiempo que ya pasó sin actividad; la cuenta sigue desde ahí. */
   iniciar(transcurridoMs = 0): void {
     this.detenido = false
     this.programar(transcurridoMs)
@@ -103,30 +74,18 @@ export class TemporizadorInactividad {
     this.limpiar()
   }
 
-  /**
-   * Cualquier interacción del usuario reinicia la cuenta y cancela el aviso,
-   * también después de expirar (E-15): un operador que sigue vendiendo sin
-   * conexión no debe perder la sesión a mitad de una venta cuando la cola se vacíe.
-   */
+  /** Cualquier interacción reinicia la cuenta y cancela el aviso. */
   registrarActividad(): void {
     if (this.detenido) return
     this.programar()
   }
 
-  /** Para el evento 'online' o una cola que se vació: no esperar al siguiente reintento. */
-  reintentarAhora(): void {
-    if (this.detenido || this.estado !== 'EXPIRADA_PENDIENTE' || this.comprobando) return
-    this.limpiar()
-    void this.intentarCerrar()
-  }
-
   private programar(transcurridoMs = 0): void {
     this.limpiar()
-    this.ciclo += 1
     this.cambiarEstado('ACTIVA')
-    const restanteMs = this.limiteMs - Math.max(0, transcurridoMs)
+    const restanteMs = this.inactividadMs - Math.max(0, transcurridoMs)
     if (restanteMs <= 0) {
-      void this.intentarCerrar()
+      this.bloquear()
       return
     }
     const hastaAvisoMs = restanteMs - this.avisoMs
@@ -135,31 +94,13 @@ export class TemporizadorInactividad {
     } else {
       this.temporizadores.push(setTimeout(() => this.cambiarEstado('AVISO'), hastaAvisoMs))
     }
-    this.temporizadores.push(setTimeout(() => void this.intentarCerrar(), restanteMs))
+    this.temporizadores.push(setTimeout(() => this.bloquear(), restanteMs))
   }
 
-  private async intentarCerrar(): Promise<void> {
-    if (this.comprobando) return
-    this.comprobando = true
-    const ciclo = this.ciclo
-    let puede = false
-    try {
-      puede = await this.opciones.puedeCerrar()
-    } catch {
-      puede = false
-    } finally {
-      this.comprobando = false
-    }
-    // E-15: si el usuario tocó la pantalla mientras se comprobaba (hasta 5 s
-    // esperando al servidor), la cuenta ya empezó de nuevo: no se cierra.
-    if (this.detenido || ciclo !== this.ciclo) return
-    if (puede) {
-      this.detener()
-      await this.opciones.cerrar()
-      return
-    }
-    this.cambiarEstado('EXPIRADA_PENDIENTE')
-    this.temporizadores.push(setTimeout(() => void this.intentarCerrar(), this.reintentoMs))
+  private bloquear(): void {
+    this.detener()
+    this.cambiarEstado('ACTIVA')
+    this.opciones.bloquear()
   }
 
   private cambiarEstado(estado: EstadoInactividad): void {

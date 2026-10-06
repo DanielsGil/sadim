@@ -1,12 +1,19 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { listarProductos } from '../api/catalogo'
+import { obtenerConfiguracionPagos } from '../api/configuracion'
 import { erroresPorCampo } from '../api/erroresPorCampo'
 import { mensajeErrorApi } from '../api/errorApi'
 import { registrarAjusteManual, registrarEntrada, registrarMerma } from '../api/inventarioMovimientos'
 import { ContadorCantidad } from './ContadorCantidad'
-import type { Producto } from '../tipos/dominio'
+import type { ConfiguracionPago, MedioPago, Producto } from '../tipos/dominio'
 
 type TipoMovimiento = 'ENTRADA' | 'MERMA' | 'AJUSTE_MANUAL'
+
+const ETIQUETA_MEDIO_PAGO: Record<MedioPago, string> = {
+  EFECTIVO: 'Efectivo',
+  TRANSFERENCIA: 'Transferencia',
+  QR: 'QR',
+}
 
 interface Props {
   esAdmin: boolean
@@ -29,6 +36,10 @@ export function PanelMovimientoInventario({ esAdmin, productoIdInicial, onRegist
   const [sentido, setSentido] = useState<'SUMA' | 'RESTA'>('RESTA')
   const [cantidad, setCantidad] = useState(1)
   const [motivo, setMotivo] = useState('')
+  // D31 (E-23): costo opcional de la compra; si se llena, el medio es obligatorio.
+  const [costoTotal, setCostoTotal] = useState('')
+  const [medioPago, setMedioPago] = useState<MedioPago | ''>('')
+  const [pagos, setPagos] = useState<ConfiguracionPago | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [erroresCampo, setErroresCampo] = useState<Record<string, string>>({})
   const [mensaje, setMensaje] = useState<string | null>(null)
@@ -43,6 +54,18 @@ export function PanelMovimientoInventario({ esAdmin, productoIdInicial, onRegist
   }
 
   useEffect(cargarProductos, [])
+
+  useEffect(() => {
+    obtenerConfiguracionPagos().then(setPagos)
+  }, [])
+
+  const mediosHabilitados: MedioPago[] = pagos
+    ? [
+        ...(pagos.acepta_efectivo ? (['EFECTIVO'] as const) : []),
+        ...(pagos.acepta_transferencia ? (['TRANSFERENCIA'] as const) : []),
+        ...(pagos.acepta_qr ? (['QR'] as const) : []),
+      ]
+    : []
 
   // Clic en una fila de la tabla: precarga ese producto (sin efecto, patrón de "valor previo").
   const [inicialPrevio, setInicialPrevio] = useState(productoIdInicial)
@@ -77,11 +100,27 @@ export function PanelMovimientoInventario({ esAdmin, productoIdInicial, onRegist
       setError('Selecciona un producto.')
       return
     }
+    const conCosto = tipo === 'ENTRADA' && costoTotal !== ''
+    if (conCosto && !medioPago) {
+      setErroresCampo({ medio_pago: 'Elige el medio de pago de la compra.' })
+      return
+    }
     setGuardando(true)
     try {
       if (tipo === 'ENTRADA') {
-        const movimiento = await registrarEntrada(productoId, cantidad, motivo)
-        setMensaje(`Ingreso registrado: +${movimiento.cantidad} unidades.`)
+        const movimiento = await registrarEntrada(
+          productoId,
+          cantidad,
+          motivo,
+          conCosto && medioPago ? { costoTotal: Number(costoTotal), medioPago } : undefined,
+        )
+        setMensaje(
+          conCosto
+            ? `Ingreso registrado: +${movimiento.cantidad} unidades, con su gasto en Caja.`
+            : `Ingreso registrado: +${movimiento.cantidad} unidades.`,
+        )
+        setCostoTotal('')
+        setMedioPago('')
       } else if (tipo === 'MERMA') {
         await registrarMerma(productoId, cantidad, motivo)
         setMensaje('Merma registrada.')
@@ -172,6 +211,38 @@ export function PanelMovimientoInventario({ esAdmin, productoIdInicial, onRegist
             required={tipo !== 'ENTRADA'}
           />
           {erroresCampo.motivo && <p className="mensaje-error-campo">{erroresCampo.motivo}</p>}
+
+          {tipo === 'ENTRADA' && (
+            <>
+              <label htmlFor="movimiento-costo">Costo total de la compra (opcional)</label>
+              <input
+                id="movimiento-costo"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={costoTotal}
+                onChange={(evento) => setCostoTotal(evento.target.value)}
+                placeholder="Se registra como gasto en Caja"
+              />
+              {erroresCampo.costo_total && <p className="mensaje-error-campo">{erroresCampo.costo_total}</p>}
+              <label htmlFor="movimiento-medio-pago">
+                {costoTotal !== '' ? 'Medio de pago' : 'Medio de pago (si hay costo)'}
+              </label>
+              <select
+                id="movimiento-medio-pago"
+                value={medioPago}
+                onChange={(evento) => setMedioPago(evento.target.value as MedioPago)}
+                required={costoTotal !== ''}
+                disabled={costoTotal === ''}
+              >
+                <option value="">Selecciona uno</option>
+                {mediosHabilitados.map((medio) => (
+                  <option key={medio} value={medio}>{ETIQUETA_MEDIO_PAGO[medio]}</option>
+                ))}
+              </select>
+              {erroresCampo.medio_pago && <p className="mensaje-error-campo">{erroresCampo.medio_pago}</p>}
+            </>
+          )}
 
           {mensaje && <p className="campo-solo-lectura">{mensaje}</p>}
           {error && (

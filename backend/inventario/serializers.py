@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from core.serializers import OperationIdInmutableMixin
@@ -49,6 +51,17 @@ class MovimientoInventarioSerializer(OperationIdInmutableMixin, serializers.Mode
     producto_id = serializers.PrimaryKeyRelatedField(source='producto', queryset=Producto.objects.all())
     usuario_id = serializers.PrimaryKeyRelatedField(source='usuario', read_only=True)
     venta_id = serializers.PrimaryKeyRelatedField(source='venta', read_only=True)
+    # D31 (Lote 7, E-23): opcionales y solo con ENTRADA; si llega costo_total,
+    # medio_pago es obligatorio (lo valida la capa de servicios). No son campos
+    # de MovimientoInventario: generan un MovimientoCaja GASTO enlazado.
+    costo_total = serializers.DecimalField(
+        max_digits=10, decimal_places=2, min_value=Decimal('0.01'), required=False, allow_null=True,
+        write_only=True,
+    )
+    medio_pago = serializers.ChoiceField(
+        choices=['EFECTIVO', 'TRANSFERENCIA', 'QR'], required=False, allow_null=True, write_only=True,
+    )
+    gasto_id = serializers.SerializerMethodField()
 
     TIPOS_PERMITIDOS = (MovimientoInventario.Tipo.ENTRADA, MovimientoInventario.Tipo.MERMA, MovimientoInventario.Tipo.AJUSTE_MANUAL)
 
@@ -57,8 +70,14 @@ class MovimientoInventarioSerializer(OperationIdInmutableMixin, serializers.Mode
         fields = [
             'id', 'operation_id', 'producto_id', 'usuario_id', 'venta_id',
             'tipo', 'cantidad', 'sentido', 'fecha', 'motivo',
+            'costo_total', 'medio_pago', 'gasto_id',
         ]
         read_only_fields = ['fecha']
+
+    def get_gasto_id(self, obj):
+        """D31: id del MovimientoCaja GASTO de la compra, o null si no se registró costo."""
+        gasto = getattr(obj, 'gasto_compra', None)
+        return str(gasto.pk) if gasto else None
 
     def validate_tipo(self, value):
         if value not in self.TIPOS_PERMITIDOS:

@@ -113,6 +113,27 @@ export function cambiarEstadoOrden(ordenId: string, estado: EstadoOrden): Promis
   })
 }
 
+/** D29: solo ADMIN; motivo obligatorio. Sincronizable (ordenes-trabajo.cancelar UPDATE). */
+export function cancelarOrden(ordenId: string, motivo: string): Promise<OrdenTrabajo> {
+  return escribir<OrdenTrabajo>({
+    resource: 'ordenes-trabajo.cancelar',
+    action: 'UPDATE',
+    idObjeto: ordenId,
+    referenciaId: ordenId,
+    payload: { orden_id: ordenId, motivo },
+    llamarEnLinea: (operationId) =>
+      peticion<OrdenTrabajo>(`/ordenes-trabajo/${ordenId}/cancelar/`, {
+        method: 'PATCH',
+        body: JSON.stringify({ operation_id: operationId, motivo }),
+      }),
+    reflejarLocal: async () => {
+      const orden = await obtenerOrdenLocal(ordenId)
+      if (!orden) throw new Error('No se encontró la orden en este dispositivo.')
+      return orden
+    },
+  })
+}
+
 export function registrarAbono(
   ordenId: string,
   valor: number,

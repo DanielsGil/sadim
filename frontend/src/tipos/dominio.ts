@@ -133,9 +133,12 @@ export interface MovimientoInventario {
   sentido: 'SUMA' | 'RESTA' | null
   fecha: string
   motivo: string | null
+  /** D31: MovimientoCaja GASTO de la compra (solo ENTRADA con costo); null si no hubo. */
+  gasto_id?: string | null
 }
 
-export type EstadoOrden = 'RECIBIDO' | 'EN_PROCESO' | 'LISTO' | 'ENTREGADO'
+/** CANCELADA: D29 (Lote 7, E-20). */
+export type EstadoOrden = 'RECIBIDO' | 'EN_PROCESO' | 'LISTO' | 'ENTREGADO' | 'CANCELADA'
 export type EstadoConsumo = 'PENDIENTE' | 'APLICADO'
 
 /** Abono (Contrato API v2 §8, HU-022). */
@@ -185,6 +188,10 @@ export interface OrdenTrabajo {
   costo_total: number
   saldo_pendiente: number
   utilidad_neta?: number
+  /** D29: null mientras la orden no esté CANCELADA. */
+  motivo_cancelacion?: string | null
+  cancelada_por_id?: string | null
+  fecha_cancelacion?: string | null
 }
 
 /** GET /api/ordenes-trabajo/{id}/ (D13): agrega la lista de abonos. */
@@ -223,7 +230,34 @@ export interface MovimientoCaja {
   fecha: string
   fecha_confirmacion: string | null
   motivo_anulacion: string | null
+  /** D31: ENTRADA de mercancía cuya compra registra este GASTO. */
+  movimiento_inventario_id?: string | null
+  /** E-21: solo en /pendientes/ y en el histórico del ADMIN. */
+  origen?: OrigenMovimientoCaja
 }
+
+/** E-21 (Lote 7, amplía el Contrato v2 §10): de dónde viene un movimiento de caja. */
+export type OrigenMovimientoCaja =
+  | {
+      tipo: 'VENTA'
+      venta_id: string
+      venta_tipo: 'RAPIDA' | 'SESION_DINAMICA'
+      mesa_numero: number | null
+      descripcion: string
+      fecha: string
+      cobrado_por: string
+      productos: { nombre: string; cantidad: number }[]
+    }
+  | {
+      tipo: 'ABONO'
+      abono_id: string
+      orden_id: string
+      cliente_nombre: string
+      orden_descripcion: string
+      fecha: string
+      cobrado_por: string
+    }
+  | { tipo: 'GASTO'; concepto: string | null }
 
 /** GET /api/movimientos-caja/resumen/?fecha= (Contrato v2 §10, CU-20). */
 export interface ResumenCaja {
@@ -262,6 +296,7 @@ export type RecursoSincronizable =
   | 'ventas.cancelar'
   | 'ordenes-trabajo'
   | 'ordenes-trabajo.estado'
+  | 'ordenes-trabajo.cancelar'
   | 'ordenes-trabajo.abonos'
   | 'ordenes-trabajo.consumos'
   | 'ordenes-trabajo.costos'

@@ -283,6 +283,20 @@ def _sync_cambiar_estado_orden(*, usuario, operation_id, payload, fecha_cliente)
     return orden_actualizada.pk, None, 200
 
 
+def _sync_cancelar_orden(*, usuario, operation_id, payload, fecha_cliente):
+    from servicios.models import OrdenTrabajo
+    from servicios.services import cancelar_orden
+    verificar_modulo_activo('servicios')
+    verificar_rol_admin(usuario)
+    orden = _resolver_o_conflicto_previo(OrdenTrabajo, payload.get('orden_id'))
+    if not payload.get('motivo'):
+        raise ErrorNegocio(code='DATOS_INVALIDOS', message='motivo es obligatorio.', status_code=400)
+    orden_cancelada = cancelar_orden(
+        orden=orden, usuario=usuario, motivo=payload['motivo'], fecha=fecha_cliente,
+    )
+    return orden_cancelada.pk, None, 200
+
+
 def _sync_registrar_abono(*, usuario, operation_id, payload, fecha_cliente):
     from servicios.models import OrdenTrabajo
     from servicios.services import registrar_abono
@@ -332,6 +346,9 @@ def _sync_registrar_movimiento_inventario(*, usuario, operation_id, payload, fec
         usuario=usuario, operation_id=operation_id, tipo=payload['tipo'], producto=producto,
         cantidad=Decimal(str(payload['cantidad'])), motivo=payload.get('motivo'),
         sentido=payload.get('sentido'), id=payload.get('id'), fecha=fecha_cliente,
+        # D31: costo de la compra opcional, mismos campos que en línea.
+        costo_total=Decimal(str(payload['costo_total'])) if payload.get('costo_total') is not None else None,
+        medio_pago=payload.get('medio_pago'),
     )
     return movimiento.pk, None, 201
 
@@ -386,6 +403,7 @@ RECURSOS_SINCRONIZABLES = {
     ('ventas.cancelar', 'UPDATE'): _sync_cancelar_venta,
     ('ordenes-trabajo', 'CREATE'): _sync_crear_orden,
     ('ordenes-trabajo.estado', 'UPDATE'): _sync_cambiar_estado_orden,
+    ('ordenes-trabajo.cancelar', 'UPDATE'): _sync_cancelar_orden,  # D29
     ('ordenes-trabajo.abonos', 'CREATE'): _sync_registrar_abono,
     ('ordenes-trabajo.consumos', 'CREATE'): _sync_registrar_consumo,
     ('ordenes-trabajo.costos', 'CREATE'): _sync_registrar_costo,
@@ -413,6 +431,7 @@ CAMPO_OBJETO_ID = {
     'ventas.cancelar': 'venta_id',
     'ordenes-trabajo': 'id',
     'ordenes-trabajo.estado': 'orden_id',
+    'ordenes-trabajo.cancelar': 'orden_id',
     'ordenes-trabajo.abonos': 'id',
     'ordenes-trabajo.consumos': 'id',
     'ordenes-trabajo.costos': 'id',

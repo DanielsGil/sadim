@@ -49,6 +49,12 @@ class MovimientoCaja(models.Model):
     cierre_caja = models.ForeignKey(
         'CierreCaja', on_delete=models.PROTECT, null=True, blank=True, related_name='movimientos',
     )
+    # D31 (Lote 7, E-23): no está en el ERD. Gasto de la compra registrada
+    # junto con un ingreso de mercancía; UNIQUE y solo permitido en GASTO.
+    movimiento_inventario = models.OneToOneField(
+        'inventario.MovimientoInventario', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='gasto_compra',
+    )
     tipo = models.CharField(max_length=20, choices=Tipo.choices)
     medio_pago = models.CharField(max_length=20, choices=MedioPago.choices)
     estado_pago = models.CharField(
@@ -105,6 +111,11 @@ class MovimientoCaja(models.Model):
             models.CheckConstraint(
                 condition=~Q(estado_pago='ANULADO') | Q(motivo_anulacion__isnull=False),
                 name='movcaja_motivo_anulacion_si_anulado',
+            ),
+            # D31.
+            models.CheckConstraint(
+                condition=Q(tipo='GASTO') | Q(movimiento_inventario__isnull=True),
+                name='movcaja_movinv_solo_en_gasto',
             ),
         ]
 

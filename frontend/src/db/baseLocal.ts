@@ -1,4 +1,6 @@
 import Dexie, { type Table } from 'dexie'
+import type { AlmacenBloqueo, EstadoIntentos } from '../contexto/bloqueo'
+import type { VerificadorLocal } from '../contexto/verificadorLocal'
 import type { ConfiguracionModulo, ConfiguracionPago, Novedad, OperacionCola, Sesion } from '../tipos/dominio'
 
 /**
@@ -81,6 +83,10 @@ const CLAVE_MODULOS = 'modulos'
 const CLAVE_PAGOS = 'configuracion_pagos'
 const CLAVE_PROPIETARIO_COLA = 'propietario_cola'
 const CLAVE_ULTIMA_ACTIVIDAD = 'ultima_actividad'
+// D30 (E-22): bloqueo de sesión.
+const CLAVE_SESION_BLOQUEADA = 'sesion_bloqueada'
+const CLAVE_INTENTOS_DESBLOQUEO = 'intentos_desbloqueo'
+const CLAVE_VERIFICADOR_LOCAL = 'verificador_local'
 
 /** Nunca localStorage: la sesión vive únicamente en IndexedDB vía Dexie. */
 export async function guardarSesion(sesion: Sesion): Promise<void> {
@@ -92,14 +98,55 @@ export async function obtenerSesion(): Promise<Sesion | undefined> {
   return fila?.valor as Sesion | undefined
 }
 
-/** Al terminar la sesión (por cualquier motivo) también se borra la última actividad (F-20). */
+/**
+ * Al terminar la sesión (por cualquier motivo) también se borran la última
+ * actividad (F-20), la marca de bloqueo y los intentos fallidos (D30). El
+ * verificador local solo lo borra el cierre de sesión manual
+ * (`borrarVerificadorLocal`); el siguiente login lo reemplaza de todos modos.
+ */
 export async function borrarSesion(): Promise<void> {
-  await baseLocal.meta.bulkDelete([CLAVE_SESION, CLAVE_ULTIMA_ACTIVIDAD])
+  await baseLocal.meta.bulkDelete([
+    CLAVE_SESION,
+    CLAVE_ULTIMA_ACTIVIDAD,
+    CLAVE_SESION_BLOQUEADA,
+    CLAVE_INTENTOS_DESBLOQUEO,
+  ])
+}
+
+/** D30: la app quedó bloqueada (sobrevive a recargar la página). Nunca toca la cola ni la copia local. */
+export async function guardarSesionBloqueada(bloqueada: boolean): Promise<void> {
+  if (bloqueada) await baseLocal.meta.put({ clave: CLAVE_SESION_BLOQUEADA, valor: true })
+  else await baseLocal.meta.delete(CLAVE_SESION_BLOQUEADA)
+}
+
+export async function obtenerSesionBloqueada(): Promise<boolean> {
+  return (await baseLocal.meta.get(CLAVE_SESION_BLOQUEADA))?.valor === true
+}
+
+export async function borrarVerificadorLocal(): Promise<void> {
+  await baseLocal.meta.delete(CLAVE_VERIFICADOR_LOCAL)
+}
+
+/** D30: intentos fallidos y verificador local en `meta` (sin cambiar el schema de Dexie). */
+export const almacenBloqueoDexie: AlmacenBloqueo = {
+  async leerIntentos() {
+    const valor = (await baseLocal.meta.get(CLAVE_INTENTOS_DESBLOQUEO))?.valor as EstadoIntentos | undefined
+    return valor ?? { fallos: 0, esperaHastaMs: 0 }
+  },
+  async guardarIntentos(estado) {
+    await baseLocal.meta.put({ clave: CLAVE_INTENTOS_DESBLOQUEO, valor: estado })
+  },
+  async leerVerificador() {
+    return (await baseLocal.meta.get(CLAVE_VERIFICADOR_LOCAL))?.valor as VerificadorLocal | undefined
+  },
+  async guardarVerificador(verificador) {
+    await baseLocal.meta.put({ clave: CLAVE_VERIFICADOR_LOCAL, valor: verificador })
+  },
 }
 
 /**
- * F-20 (D27): momento de la última interacción del usuario, en milisegundos,
- * para que la cuenta de inactividad sobreviva a cerrar y abrir la app.
+ * F-20, reutilizado por D30: momento de la última interacción del usuario, en
+ * milisegundos, para decidir el bloqueo al volver a la app.
  */
 export async function guardarUltimaActividad(ms: number): Promise<void> {
   await baseLocal.meta.put({ clave: CLAVE_ULTIMA_ACTIVIDAD, valor: ms })

@@ -13,6 +13,7 @@ const ETIQUETA_ESTADO: Record<EstadoOrden, string> = {
   EN_PROCESO: 'En proceso',
   LISTO: 'Listo',
   ENTREGADO: 'Entregado',
+  CANCELADA: 'Cancelada',
 }
 
 /** Órdenes de trabajo (CU-06, HU-020) — listado y filtro por estado. */
@@ -54,7 +55,8 @@ export function Ordenes() {
           value={filtroEstado}
           onChange={(evento) => setFiltroEstado(evento.target.value)}
         >
-          <option value="">Todos</option>
+          {/* D29: sin filtro solo se ven las activas; las canceladas, con su filtro. */}
+          <option value="">Todas (sin canceladas)</option>
           {Object.entries(ETIQUETA_ESTADO).map(([valor, etiqueta]) => (
             <option key={valor} value={valor}>
               {etiqueta}

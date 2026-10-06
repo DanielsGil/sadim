@@ -14,6 +14,7 @@ import { PanelCierreCaja } from '../componentes/PanelCierreCaja'
 import { useSesion } from '../contexto/SesionContext'
 import { useEstadoLocal } from '../sync/useEstadoLocal'
 import type { ConfiguracionPago, MedioPago, MovimientoCaja } from '../tipos/dominio'
+import { describirOrigenPago, resumenPagoParaDialogo } from '../utilidades/etiquetas'
 import { formatoFechaHora, formatoMoneda } from '../utilidades/formato'
 
 const ETIQUETA_MEDIO_PAGO: Record<MedioPago, string> = {
@@ -69,6 +70,8 @@ export function Caja() {
   const [errorPendientes, setErrorPendientes] = useState<string | null>(null)
   const [procesandoId, setProcesandoId] = useState<string | null>(null)
   const [motivoAnulacion, setMotivoAnulacion] = useState<Record<string, string>>({})
+  // E-21: el diálogo repite el resumen completo del pago antes de aceptar.
+  const [dialogoPago, setDialogoPago] = useState<{ accion: 'confirmar' | 'anular'; movimiento: MovimientoCaja } | null>(null)
 
   useEffect(() => {
     obtenerConfiguracionPagos().then(setPagos)
@@ -79,7 +82,8 @@ export function Caja() {
     setErrorPendientes(null)
     listarPendientes()
       .then(async (lista) => {
-        setPendientes(lista)
+        // E-21: ordenados por fecha (el más antiguo primero).
+        setPendientes([...lista].sort((a, b) => a.fecha.localeCompare(b.fecha)))
         setSinSincronizar(await operationIdsSinSincronizar())
       })
       .catch((err: unknown) => {
@@ -237,6 +241,7 @@ export function Caja() {
             <thead>
               <tr>
                 <th>Tipo</th>
+                <th>Origen</th>
                 <th>Medio de pago</th>
                 <th>Valor</th>
                 <th>Fecha</th>
@@ -247,6 +252,7 @@ export function Caja() {
               {pendientes.map((movimiento) => (
                 <tr key={movimiento.id}>
                   <td>{ETIQUETA_TIPO[movimiento.tipo] ?? movimiento.tipo}</td>
+                  <td>{describirOrigenPago(movimiento)}</td>
                   <td>{ETIQUETA_MEDIO_PAGO[movimiento.medio_pago]}</td>
                   <td>{formatoMoneda(movimiento.valor)}</td>
                   <td>{formatoFechaHora(movimiento.fecha)}</td>
@@ -254,7 +260,7 @@ export function Caja() {
                     <button
                       type="button"
                       disabled={procesandoId === movimiento.id || !enLinea || sinSincronizar.has(movimiento.operation_id)}
-                      onClick={() => void manejarConfirmar(movimiento)}
+                      onClick={() => setDialogoPago({ accion: 'confirmar', movimiento })}
                     >
                       {!enLinea ? 'Requiere conexión' : sinSincronizar.has(movimiento.operation_id) ? 'Pendiente de sincronizar' : 'Confirmar'}
                     </button>
@@ -276,7 +282,7 @@ export function Caja() {
                             !enLinea ||
                             sinSincronizar.has(movimiento.operation_id)
                           }
-                          onClick={() => void manejarAnular(movimiento)}
+                          onClick={() => setDialogoPago({ accion: 'anular', movimiento })}
                         >
                           {!enLinea ? 'Requiere conexión' : 'Anular'}
                         </button>
@@ -287,7 +293,7 @@ export function Caja() {
               ))}
               {pendientes.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="texto-vacio">No hay pagos pendientes de verificación.</td>
+                  <td colSpan={6} className="texto-vacio">No hay pagos pendientes de verificación.</td>
                 </tr>
               )}
             </tbody>
@@ -297,6 +303,39 @@ export function Caja() {
       )}
 
       {esAdmin && (pestana === 'resumen' || pestana === 'cierre') && <PanelCierreCaja vista={pestana} />}
+
+      {dialogoPago && (
+        <div className="dialogo-fondo" role="presentation">
+          <div className="dialogo" role="alertdialog" aria-modal="true" aria-labelledby="dialogo-pago-titulo">
+            <h3 id="dialogo-pago-titulo">
+              {dialogoPago.accion === 'confirmar' ? 'Confirmar pago' : 'Anular pago'}
+            </h3>
+            <p>
+              {dialogoPago.accion === 'confirmar' ? '¿Confirmar pago de ' : '¿Anular pago de '}
+              {resumenPagoParaDialogo(dialogoPago.movimiento)}?
+            </p>
+            {dialogoPago.accion === 'anular' && (
+              <p className="campo-solo-lectura">Motivo: {motivoAnulacion[dialogoPago.movimiento.id]}</p>
+            )}
+            <div className="acciones-formulario">
+              <button type="button" className="boton-secundario" onClick={() => setDialogoPago(null)}>
+                No
+              </button>
+              <button
+                type="button"
+                disabled={procesandoId === dialogoPago.movimiento.id}
+                onClick={() => {
+                  const { accion, movimiento } = dialogoPago
+                  setDialogoPago(null)
+                  void (accion === 'confirmar' ? manejarConfirmar(movimiento) : manejarAnular(movimiento))
+                }}
+              >
+                {dialogoPago.accion === 'confirmar' ? 'Sí, confirmar' : 'Sí, anular'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

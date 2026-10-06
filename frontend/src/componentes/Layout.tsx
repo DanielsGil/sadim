@@ -1,17 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { servidorDisponible } from '../api/salud'
 import { IndicadorConectividad } from './IndicadorConectividad'
+import { PantallaBloqueo } from './PantallaBloqueo'
 import { useElementosNavegacion } from './navegacion'
 import {
-  calcularInicioInactividad,
-  INACTIVIDAD_SESION,
+  BLOQUEO_SESION,
+  debeBloquearAlVolver,
   TemporizadorInactividad,
   type EstadoInactividad,
 } from '../contexto/inactividad'
 import { useSesion } from '../contexto/SesionContext'
 import { guardarUltimaActividad, obtenerUltimaActividad } from '../db/baseLocal'
-import { contarOperacionesPendientes } from '../sync/enrutador'
 
 const EVENTOS_ACTIVIDAD = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart', 'scroll'] as const
 /** F-20: cada cuánto, como máximo, se escribe `meta.ultima_actividad` en Dexie. */
@@ -31,36 +30,22 @@ const INTERVALO_GUARDADO_ACTIVIDAD_MS = 30 * 1000
  * ocultar por error: el backend igual aplica la regla real (ADR-005/006).
  */
 export function Layout() {
-  const { sesion, cerrarSesion } = useSesion()
+  const { sesion, cerrarSesion, bloqueada, bloquear } = useSesion()
   const elementos = useElementosNavegacion()
   const navigate = useNavigate()
   const [errorCierre, setErrorCierre] = useState<string | null>(null)
   const [hojaAbierta, setHojaAbierta] = useState(false)
   const [cuentaAbierta, setCuentaAbierta] = useState(false)
   const [estadoInactividad, setEstadoInactividad] = useState<EstadoInactividad>('ACTIVA')
-  const cerrarSesionRef = useRef(cerrarSesion)
 
+  // D30 (E-22, reemplaza a D27): la app se BLOQUEA, nunca cierra la sesión
+  // sola. Caso 2: 15 min sin interacción con la app abierta (aviso 1 min
+  // antes). Caso 1: al traerla al frente, si pasaron más de 5 min desde la
+  // última interacción. Mientras está bloqueada no corre el temporizador.
   useEffect(() => {
-    cerrarSesionRef.current = cerrarSesion
-  })
-
-  // D27 (E-11): cierre por inactividad para ambos roles. Solo se cierra con
-  // red, con la cola vacía (D21/D23) y con el servidor respondiendo (F-19:
-  // navigator.onLine no basta con wifi sin internet o Render dormido);
-  // cerrarSesion borra los tokens, nunca la cola ni la copia local.
-  useEffect(() => {
+    if (bloqueada) return
     const temporizador = new TemporizadorInactividad({
-      puedeCerrar: async () =>
-        navigator.onLine && (await contarOperacionesPendientes()) === 0 && (await servidorDisponible()),
-      cerrar: async () => {
-        try {
-          await cerrarSesionRef.current()
-          navigate('/login', { replace: true })
-        } catch {
-          // Entró una operación a la cola justo ahora: se sigue contando.
-          temporizador.iniciar()
-        }
-      },
+      bloquear,
       alCambiarEstado: setEstadoInactividad,
     })
     let cancelado = false
@@ -82,38 +67,46 @@ export function Layout() {
       if (ultimaActividad > 0) void guardarUltimaActividad(ultimaActividad)
     }
     const alCambiarVisibilidad = () => {
-      if (document.visibilityState === 'hidden') alOcultar()
+      if (document.visibilityState === 'hidden') {
+        alOcultar()
+        return
+      }
+      // D30, caso 1: la app vuelve al frente.
+      void obtenerUltimaActividad()
+        .catch(() => undefined)
+        .then((guardada) => {
+          if (cancelado) return
+          const referencia = Math.max(guardada ?? 0, ultimaActividad) || undefined
+          if (debeBloquearAlVolver(referencia, Date.now())) bloquear()
+        })
     }
-    const alConectar = () => temporizador.reintentarAhora()
 
-    // F-20: la cuenta sigue desde la última actividad guardada (también con la
-    // app cerrada); si ya pasaron 30 min, se aplica de inmediato la regla de F-19.
+    // Al montar (también justo después de desbloquear) la cuenta sigue desde
+    // la última actividad guardada; el bloqueo al ABRIR la app lo decide SesionContext.
     void obtenerUltimaActividad()
       .catch(() => undefined)
       .then((guardada) => {
         if (cancelado) return
         const ahora = Date.now()
-        // Un toque mientras se leía Dexie también cuenta; el valor en el futuro lo resuelve la función pura.
-        const referencia = guardada === undefined ? undefined : Math.max(guardada, ultimaActividad)
-        temporizador.iniciar(calcularInicioInactividad(referencia, ahora).transcurridoMs)
+        const referencia = Math.min(ahora, Math.max(guardada ?? ahora, ultimaActividad))
+        temporizador.iniciar(ahora - referencia)
       })
     for (const evento of EVENTOS_ACTIVIDAD) {
       window.addEventListener(evento, alInteractuar, { passive: true, capture: true })
     }
-    window.addEventListener('online', alConectar)
     document.addEventListener('visibilitychange', alCambiarVisibilidad)
     window.addEventListener('pagehide', alOcultar)
     return () => {
       cancelado = true
       temporizador.detener()
+      alOcultar()
       for (const evento of EVENTOS_ACTIVIDAD) {
         window.removeEventListener(evento, alInteractuar, { capture: true })
       }
-      window.removeEventListener('online', alConectar)
       document.removeEventListener('visibilitychange', alCambiarVisibilidad)
       window.removeEventListener('pagehide', alOcultar)
     }
-  }, [navigate])
+  }, [bloqueada, bloquear])
 
   // Máximo 5 elementos visibles a la vez en la barra inferior (E-01): si hay
   // más de 5 secciones en total, se muestran las primeras 4 y el resto pasa
@@ -135,6 +128,9 @@ export function Layout() {
       setErrorCierre(error instanceof Error ? error.message : 'No se pudo cerrar sesión.')
     }
   }
+
+  // D30: bloqueada, la pantalla de bloqueo reemplaza TODO el contenido.
+  if (bloqueada) return <PantallaBloqueo />
 
   return (
     <div className="app-shell">
@@ -196,15 +192,8 @@ export function Layout() {
       <main className="contenido-principal">
         {estadoInactividad === 'AVISO' && (
           <p className="aviso-inactividad" role="alert">
-            Por inactividad, la sesión se cerrará en {Math.round(INACTIVIDAD_SESION.avisoMs / 1000)}{' '}
-            segundos. Toca la pantalla para seguir trabajando.
-          </p>
-        )}
-        {estadoInactividad === 'EXPIRADA_PENDIENTE' && (
-          <p className="aviso-inactividad" role="alert">
-            La sesión expiró por inactividad. No se cierra todavía porque no hay conexión o quedan
-            operaciones sin sincronizar. Si sigues trabajando, la sesión continúa; si no, se cerrará
-            apenas haya conexión y todo quede sincronizado.
+            Por inactividad, la app se bloqueará en {Math.round(BLOQUEO_SESION.avisoMs / 1000)} segundos.
+            Toca la pantalla para seguir trabajando.
           </p>
         )}
         <Outlet />

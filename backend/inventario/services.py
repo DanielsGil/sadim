@@ -5,6 +5,7 @@ import uuid
 from django.utils import timezone
 
 from core.exceptions import ErrorNegocio
+from core.permissions import verificar_modulo_activo
 
 from .models import MovimientoInventario, Producto
 
@@ -33,7 +34,16 @@ def editar_producto(*, producto, datos):
     return producto
 
 
-def registrar_entrada(*, usuario, producto, cantidad, operation_id, motivo=None, id=None, fecha=None):
+def _concepto_compra(producto, cantidad, motivo):
+    """D31: «Compra: <producto> × <cantidad>» (más el motivo si lo hay), dentro de 255 caracteres."""
+    concepto = f'Compra: {producto.nombre} × {format(cantidad.normalize(), "f")}'
+    if motivo:
+        concepto = f'{concepto} — {motivo}'
+    return concepto[:255]
+
+
+def registrar_entrada(*, usuario, producto, cantidad, operation_id, motivo=None, id=None, fecha=None,
+                      costo_total=None, medio_pago=None):
     """
     POST /api/inventario/movimientos/ con tipo=ENTRADA (Contrato v2 §9,
     HU-025). select_for_update evita que dos ingresos simultáneos del mismo
@@ -42,11 +52,44 @@ def registrar_entrada(*, usuario, producto, cantidad, operation_id, motivo=None,
     `id` y `fecha` son opcionales: /api/sync/ (Bloque 5a, D17/D18) los pasa
     con el id generado por el dispositivo y fecha_cliente como fecha de
     negocio; en línea se omiten y el modelo usa sus valores por defecto.
+
+    D31 (Lote 7, E-23): con `costo_total` (> 0) se crea además, en la misma
+    transacción, un MovimientoCaja GASTO enlazado por movimiento_inventario,
+    con las reglas de siempre de registrar_gasto (medio habilitado; EFECTIVO
+    → CONFIRMADO, TRANSFERENCIA/QR → PENDIENTE_VERIFICACION). Si el gasto
+    falla, la transacción del llamador revierte también la ENTRADA.
     """
+    if costo_total is not None and not medio_pago:
+        raise ErrorNegocio(
+            code='DATOS_INVALIDOS',
+            message='medio_pago es obligatorio cuando se informa costo_total.',
+            status_code=400,
+            details={'medio_pago': 'Es obligatorio cuando se informa costo_total.'},
+        )
+    if medio_pago and costo_total is None:
+        raise ErrorNegocio(
+            code='DATOS_INVALIDOS',
+            message='medio_pago solo aplica cuando se informa costo_total.',
+            status_code=400,
+            details={'medio_pago': 'Solo aplica cuando se informa costo_total.'},
+        )
+    if costo_total is not None and costo_total <= 0:
+        raise ErrorNegocio(
+            code='DATOS_INVALIDOS',
+            message='costo_total debe ser mayor que cero.',
+            status_code=400,
+            details={'costo_total': 'Debe ser mayor que cero.'},
+        )
+    if costo_total is not None:
+        # El gasto vive en Caja: con el módulo de finanzas apagado se rechaza
+        # la operación completa (HU-042), no solo el gasto.
+        verificar_modulo_activo('finanzas')
+
+    ahora = fecha or timezone.now()
     producto = Producto.objects.select_for_update().get(pk=producto.pk)
     producto.stock_actual += cantidad
     producto.save(update_fields=['stock_actual'])
-    return MovimientoInventario.objects.create(
+    movimiento = MovimientoInventario.objects.create(
         id=id or uuid.uuid4(),
         operation_id=operation_id,
         producto=producto,
@@ -54,8 +97,17 @@ def registrar_entrada(*, usuario, producto, cantidad, operation_id, motivo=None,
         tipo=MovimientoInventario.Tipo.ENTRADA,
         cantidad=cantidad,
         motivo=motivo,
-        fecha=fecha or timezone.now(),
+        fecha=ahora,
     )
+
+    if costo_total is not None:
+        from finanzas.services import registrar_gasto
+        registrar_gasto(
+            usuario=usuario, operation_id=uuid.uuid4(), medio_pago=medio_pago, valor=costo_total,
+            concepto=_concepto_compra(producto, cantidad, motivo), fecha=ahora,
+            movimiento_inventario=movimiento,
+        )
+    return movimiento
 
 
 def registrar_merma(*, usuario, producto, cantidad, operation_id, motivo, id=None, fecha=None):
@@ -126,7 +178,7 @@ def registrar_ajuste_manual(*, usuario, producto, cantidad, sentido, operation_i
 
 
 def registrar_movimiento(*, usuario, operation_id, tipo, producto, cantidad, motivo=None, sentido=None,
-                          id=None, fecha=None):
+                          id=None, fecha=None, costo_total=None, medio_pago=None):
     """
     Despacha por tipo (Contrato v2 §9): ENTRADA es de ambos roles; MERMA y
     AJUSTE_MANUAL exigen ADMIN (403 PERMISO_INSUFICIENTE si no lo es) porque
@@ -137,7 +189,15 @@ def registrar_movimiento(*, usuario, operation_id, tipo, producto, cantidad, mot
     if tipo == MovimientoInventario.Tipo.ENTRADA:
         return registrar_entrada(
             usuario=usuario, producto=producto, cantidad=cantidad, operation_id=operation_id,
-            motivo=motivo, id=id, fecha=fecha,
+            motivo=motivo, id=id, fecha=fecha, costo_total=costo_total, medio_pago=medio_pago,
+        )
+
+    if costo_total is not None or medio_pago:
+        # D31: el costo de compra solo acompaña a una ENTRADA.
+        raise ErrorNegocio(
+            code='DATOS_INVALIDOS',
+            message='costo_total y medio_pago solo aplican a movimientos de tipo ENTRADA.',
+            status_code=400,
         )
 
     if getattr(usuario, 'rol', None) != 'ADMIN':

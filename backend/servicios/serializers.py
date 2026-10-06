@@ -38,6 +38,7 @@ class OrdenTrabajoSerializer(serializers.ModelSerializer):
     """
 
     usuario_id = serializers.PrimaryKeyRelatedField(source='usuario', read_only=True)
+    cancelada_por_id = serializers.PrimaryKeyRelatedField(source='cancelada_por', read_only=True)
 
     class Meta:
         model = OrdenTrabajo
@@ -45,6 +46,8 @@ class OrdenTrabajoSerializer(serializers.ModelSerializer):
             'id', 'operation_id', 'usuario_id', 'cliente_nombre', 'cliente_telefono',
             'descripcion', 'fecha_solicitud', 'fecha_entrega_estimada', 'estado',
             'costo_total', 'saldo_pendiente', 'utilidad_neta',
+            # D29: campos de cancelación (null mientras la orden no esté CANCELADA).
+            'motivo_cancelacion', 'cancelada_por_id', 'fecha_cancelacion',
         ]
         read_only_fields = fields
 
@@ -85,6 +88,13 @@ class CambiarEstadoSerializer(serializers.Serializer):
 
     operation_id = serializers.UUIDField(required=False)
     estado = serializers.ChoiceField(choices=OrdenTrabajo.Estado.choices)
+
+
+class CancelarOrdenSerializer(serializers.Serializer):
+    """PATCH /api/ordenes-trabajo/{id}/cancelar/ (D29, solo ADMIN)."""
+
+    operation_id = serializers.UUIDField(required=False)
+    motivo = serializers.CharField(max_length=255)
 
 
 class RegistrarAbonoSerializer(serializers.Serializer):

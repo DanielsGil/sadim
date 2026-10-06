@@ -654,3 +654,60 @@ class NovedadSincronizacionAPITests(SincronizacionAPITestCase):
     def test_anonimo_recibe_401(self):
         response = APIClient().get('/api/sync/novedades/')
         self.assertEqual(response.status_code, 401)
+
+
+class SincronizacionLote7Tests(SincronizacionAPITestCase):
+    """Lote 7: cancelar orden (D29) e ingreso con costo (D31) por /api/sync/."""
+
+    def test_cancelar_orden_por_sync(self):
+        orden_id = str(uuid.uuid4())
+        response = self._sync(self.c_admin, [
+            self._op('ordenes-trabajo', 'CREATE', {
+                'id': orden_id, 'cliente_nombre': 'Laura', 'descripcion': 'Torta',
+                'fecha_entrega_estimada': '2026-10-20', 'costo_total': '50000.00',
+            }),
+            self._op('ordenes-trabajo.cancelar', 'UPDATE', {'orden_id': orden_id, 'motivo': 'Desistió'}),
+            self._op('ordenes-trabajo.cancelar', 'UPDATE', {'orden_id': orden_id, 'motivo': 'Otra vez'}),
+        ])
+
+        estados = [r['estado'] for r in response.data['results']]
+        self.assertEqual(estados, ['APLICADA', 'APLICADA', 'CONFLICTO'])
+        self.assertEqual(response.data['results'][2]['codigo_conflicto'], 'ORDEN_CANCELADA')
+        from servicios.models import OrdenTrabajo
+        orden = OrdenTrabajo.objects.get(pk=orden_id)
+        self.assertEqual(orden.estado, 'CANCELADA')
+        self.assertEqual(orden.motivo_cancelacion, 'Desistió')
+
+    def test_cancelar_orden_por_sync_operador_rechazada(self):
+        from servicios.models import OrdenTrabajo
+        orden = OrdenTrabajo.objects.create(
+            usuario=self.admin, cliente_nombre='Laura', descripcion='Torta',
+            fecha_entrega_estimada=timezone.localdate(), costo_total=Decimal('1000'),
+            saldo_pendiente=Decimal('1000'), utilidad_neta=Decimal('1000'),
+        )
+        response = self._sync(self.c_operador, [
+            self._op('ordenes-trabajo.cancelar', 'UPDATE', {'orden_id': str(orden.id), 'motivo': 'x'}),
+        ])
+        resultado = response.data['results'][0]
+        self.assertEqual(resultado['estado'], 'RECHAZADA')
+        self.assertEqual(resultado['codigo_conflicto'], 'PERMISO_INSUFICIENTE')
+
+    def test_ingreso_con_costo_por_sync(self):
+        from finanzas.models import MovimientoCaja
+        from inventario.models import MovimientoInventario
+        movimiento_id = str(uuid.uuid4())
+        response = self._sync(self.c_operador, [
+            self._op('inventario.movimientos', 'CREATE', {
+                'id': movimiento_id, 'producto_id': str(self.producto.id), 'tipo': 'ENTRADA',
+                'cantidad': '6', 'costo_total': '12000.00', 'medio_pago': 'EFECTIVO',
+            }),
+        ])
+
+        self.assertEqual(response.data['results'][0]['estado'], 'APLICADA')
+        movimiento = MovimientoInventario.objects.get(pk=movimiento_id)
+        gasto = MovimientoCaja.objects.get(movimiento_inventario=movimiento)
+        self.assertEqual(gasto.tipo, 'GASTO')
+        self.assertEqual(gasto.valor, Decimal('12000.00'))
+        self.assertEqual(gasto.estado_pago, 'CONFIRMADO')
+        self.assertEqual(gasto.concepto, 'Compra: Cafe × 6')
+        self.assertEqual(gasto.fecha, movimiento.fecha)

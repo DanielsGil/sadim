@@ -134,6 +134,8 @@ class MovimientoInventarioViewSet(
                 cantidad=datos['cantidad'],
                 motivo=datos.get('motivo'),
                 sentido=datos.get('sentido'),
+                costo_total=datos.get('costo_total'),
+                medio_pago=datos.get('medio_pago'),
             )
             return movimiento.pk, self.get_serializer(movimiento).data, 201
 

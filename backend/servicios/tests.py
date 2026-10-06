@@ -436,3 +436,141 @@ class ModuloDesactivadoTests(ServiciosAPITestCase):
         response = self._crear_orden()
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.data['code'], 'MODULO_DESACTIVADO')
+
+
+class CancelarOrdenTests(ServiciosAPITestCase):
+    """D29 (Lote 7, E-20) — PATCH /api/ordenes-trabajo/{id}/cancelar/, solo ADMIN."""
+
+    def _orden(self):
+        return OrdenTrabajo.objects.get(pk=self._crear_orden().data['id'])
+
+    def _cancelar(self, orden, cliente=None, **overrides):
+        payload = {'operation_id': str(uuid.uuid4()), 'motivo': 'El cliente desistió del pedido'}
+        payload.update(overrides)
+        return (cliente or self.c_admin).patch(
+            f'/api/ordenes-trabajo/{orden.id}/cancelar/', payload, format='json',
+        )
+
+    def _abonar(self, orden, medio_pago):
+        return self.c_admin.post(
+            f'/api/ordenes-trabajo/{orden.id}/abonos/',
+            {'operation_id': str(uuid.uuid4()), 'valor': '10000.00', 'medio_pago': medio_pago},
+            format='json',
+        )
+
+    def test_cancelacion_valida_y_consumos_nunca_se_aplican(self):
+        orden = self._orden()
+        self.c_admin.post(
+            f'/api/ordenes-trabajo/{orden.id}/consumos/',
+            {'operation_id': str(uuid.uuid4()), 'producto_id': str(self.harina.id), 'cantidad': '2'},
+            format='json',
+        )
+
+        response = self._cancelar(orden)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['estado'], 'CANCELADA')
+        self.assertEqual(response.data['motivo_cancelacion'], 'El cliente desistió del pedido')
+        self.assertEqual(response.data['cancelada_por_id'], self.admin.id)
+        self.assertIsNotNone(response.data['fecha_cancelacion'])
+        self.assertEqual(ConsumoOrden.objects.get(orden=orden).estado, ConsumoOrden.Estado.PENDIENTE)
+        self.harina.refresh_from_db()
+        self.assertEqual(self.harina.stock_actual, Decimal('10'))
+        self.assertFalse(MovimientoInventario.objects.filter(tipo='SALIDA_SERVICIO').exists())
+
+    def test_listado_excluye_canceladas_salvo_con_filtro(self):
+        activa = self._orden()
+        cancelada = self._orden()
+        self._cancelar(cancelada)
+
+        ids = [o['id'] for o in self.c_admin.get('/api/ordenes-trabajo/').data]
+        self.assertIn(str(activa.id), ids)
+        self.assertNotIn(str(cancelada.id), ids)
+        filtradas = self.c_admin.get('/api/ordenes-trabajo/?estado=CANCELADA').data
+        self.assertEqual([o['id'] for o in filtradas], [str(cancelada.id)])
+
+    def test_motivo_obligatorio(self):
+        response = self._cancelar(self._orden(), motivo='')
+        self.assertEqual(response.status_code, 400)
+        assert_error_shape(self, response)
+
+    def test_bloqueada_por_abono_confirmado(self):
+        orden = self._orden()
+        self._abonar(orden, 'EFECTIVO')
+
+        response = self._cancelar(orden)
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data['code'], 'ORDEN_CON_ABONOS')
+        self.assertIn('anule', response.data['message'])
+        orden.refresh_from_db()
+        self.assertEqual(orden.estado, OrdenTrabajo.Estado.RECIBIDO)
+
+    def test_bloqueada_por_abono_pendiente_de_verificacion(self):
+        orden = self._orden()
+        self._abonar(orden, 'TRANSFERENCIA')
+
+        response = self._cancelar(orden)
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data['code'], 'ORDEN_CON_ABONOS')
+
+    def test_abono_anulado_no_bloquea(self):
+        orden = self._orden()
+        abono_id = self._abonar(orden, 'TRANSFERENCIA').data['id']
+        movimiento = MovimientoCaja.objects.get(abono_id=abono_id)
+        self.c_admin.patch(
+            f'/api/movimientos-caja/{movimiento.id}/anular/', {'motivo': 'La transferencia no llegó'},
+            format='json',
+        )
+
+        response = self._cancelar(orden)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['estado'], 'CANCELADA')
+
+    def test_sobre_entregada_responde_orden_ya_entregada(self):
+        orden = self._orden()
+        for estado in ('EN_PROCESO', 'LISTO', 'ENTREGADO'):
+            self.c_admin.patch(f'/api/ordenes-trabajo/{orden.id}/estado/', {'estado': estado}, format='json')
+
+        response = self._cancelar(orden)
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data['code'], 'ORDEN_YA_ENTREGADA')
+
+    def test_operaciones_sobre_orden_cancelada(self):
+        orden = self._orden()
+        self._cancelar(orden)
+        base = f'/api/ordenes-trabajo/{orden.id}'
+
+        respuestas = [
+            self.c_admin.patch(f'{base}/estado/', {'estado': 'EN_PROCESO'}, format='json'),
+            self._abonar(orden, 'EFECTIVO'),
+            self.c_admin.post(
+                f'{base}/consumos/', {'producto_id': str(self.harina.id), 'cantidad': '1'}, format='json',
+            ),
+            self.c_admin.post(f'{base}/costos/', {'concepto': 'Gas', 'valor': '5000'}, format='json'),
+            self._cancelar(orden),
+        ]
+
+        for response in respuestas:
+            self.assertEqual(response.status_code, 409)
+            self.assertEqual(response.data['code'], 'ORDEN_CANCELADA')
+        self.assertFalse(Abono.objects.filter(orden=orden).exists())
+
+    def test_operador_recibe_403(self):
+        orden = self._orden()
+        response = self._cancelar(orden, cliente=self.c_operador)
+        self.assertEqual(response.status_code, 403)
+        orden.refresh_from_db()
+        self.assertEqual(orden.estado, OrdenTrabajo.Estado.RECIBIDO)
+
+    def test_idempotencia_por_operation_id(self):
+        orden = self._orden()
+        operation_id = str(uuid.uuid4())
+        primera = self._cancelar(orden, operation_id=operation_id)
+        segunda = self._cancelar(orden, operation_id=operation_id)
+        self.assertEqual(primera.status_code, 200)
+        self.assertEqual(segunda.status_code, 200)
+        self.assertEqual(segunda.data['estado'], 'CANCELADA')

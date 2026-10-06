@@ -14,6 +14,8 @@ class OrdenTrabajo(models.Model):
         EN_PROCESO = 'EN_PROCESO'
         LISTO = 'LISTO'
         ENTREGADO = 'ENTREGADO'
+        # D29 (Lote 7, E-20): una orden no se borra (D7), se cancela.
+        CANCELADA = 'CANCELADA'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     operation_id = models.UUIDField(unique=True, default=uuid.uuid4)
@@ -34,10 +36,24 @@ class OrdenTrabajo(models.Model):
     # únicamente al rol ADMIN (CU-10), nunca al OPERADOR (igual que
     # Producto.costo_produccion, D5).
     utilidad_neta = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    # D29: no están en el ERD. Obligatorios cuando estado = CANCELADA.
+    motivo_cancelacion = models.CharField(max_length=255, null=True, blank=True)
+    cancelada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name='+',
+    )
+    fecha_cancelacion = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
             models.CheckConstraint(condition=Q(costo_total__gte=0), name='orden_costo_total_no_negativo'),
+            models.CheckConstraint(
+                condition=~Q(estado='CANCELADA') | (
+                    Q(motivo_cancelacion__isnull=False)
+                    & Q(cancelada_por__isnull=False)
+                    & Q(fecha_cancelacion__isnull=False)
+                ),
+                name='orden_datos_cancelacion_si_cancelada',
+            ),
         ]
 
     def __str__(self):

@@ -86,6 +86,9 @@ function aplicarOperaciones<T extends OrdenTrabajo>(orden: T, filas: FilaOperaci
   for (const fila of filas) {
     if (fila.resource === 'ordenes-trabajo.estado') {
       resultado.estado = fila.datos.estado as EstadoOrden
+    } else if (fila.resource === 'ordenes-trabajo.cancelar') {
+      resultado.estado = 'CANCELADA'
+      resultado.motivo_cancelacion = String(fila.datos.motivo)
     } else if (fila.resource === 'ordenes-trabajo.abonos') {
       resultado.saldo_pendiente = Math.max(0, redondear(resultado.saldo_pendiente - Number(fila.datos.valor)))
     } else if (fila.resource === 'ordenes-trabajo.costos' && resultado.utilidad_neta !== undefined) {
@@ -108,7 +111,8 @@ export async function listarOrdenesLocal(estado?: string): Promise<OrdenTrabajo[
 
   return ordenes
     .map((orden) => aplicarOperaciones(orden, filas.filter((fila) => fila.referencia_id === orden.id)))
-    .filter((orden) => !estado || orden.estado === estado)
+    // D29: sin filtro, las canceladas no se mezclan con las activas (igual que el servidor).
+    .filter((orden) => (estado ? orden.estado === estado : orden.estado !== 'CANCELADA'))
 }
 
 export async function obtenerOrdenLocal(ordenId: string): Promise<OrdenTrabajoDetalle | undefined> {

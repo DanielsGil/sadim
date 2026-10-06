@@ -4,11 +4,15 @@ from decimal import Decimal
 from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 
+from core.models import ConfiguracionPago
+from finanzas.models import MovimientoCaja
 from usuarios.models import Usuario
+from ventas.models import Venta
 
-from .models import Categoria, Producto
+from .models import Categoria, MovimientoInventario, Producto
 
 PASSWORD = 'ClaveSegura2026!'
 
@@ -567,3 +571,88 @@ class StockAPITests(CatalogoAPITestCase):
     def test_anonimo_recibe_401(self):
         response = self.c_anonimo.get('/api/inventario/stock/')
         self.assertEqual(response.status_code, 401)
+
+
+class IngresoConCostoTests(CatalogoAPITestCase):
+    """D31 (Lote 7, E-23): ENTRADA con costo_total y medio_pago crea un GASTO enlazado."""
+
+    def setUp(self):
+        super().setUp()
+        ConfiguracionPago.objects.create(
+            actualizado_por=self.admin, actualizado_en=timezone.now(),
+            acepta_efectivo=True, acepta_transferencia=False, acepta_qr=True,
+            nequi_titular='Aroma & Co.', nequi_llave='3001234567',
+        )
+        self.producto = Producto.objects.create(
+            categoria=self.categoria, nombre='Leche', tipo='INSUMO_PRODUCCION',
+            precio_venta=0, unidad_medida='litro', stock_actual=5,
+        )
+
+    def _post(self, **overrides):
+        payload = {
+            'operation_id': str(uuid.uuid4()), 'producto_id': str(self.producto.id),
+            'tipo': 'ENTRADA', 'cantidad': '12', 'motivo': 'Proveedor Alquería',
+        }
+        payload.update(overrides)
+        return self.c_operador.post('/api/inventario/movimientos/', payload, format='json')
+
+    def test_ingreso_sin_costo_igual_que_antes(self):
+        response = self._post()
+        self.assertEqual(response.status_code, 201)
+        self.assertIsNone(response.data['gasto_id'])
+        self.assertFalse(MovimientoCaja.objects.exists())
+        self.producto.refresh_from_db()
+        self.assertEqual(self.producto.stock_actual, 17)
+
+    def test_ingreso_con_costo_crea_gasto_enlazado(self):
+        response = self._post(costo_total='36000.00', medio_pago='QR')
+
+        self.assertEqual(response.status_code, 201)
+        gasto = MovimientoCaja.objects.get()
+        self.assertEqual(str(gasto.pk), response.data['gasto_id'])
+        self.assertEqual(str(gasto.movimiento_inventario_id), response.data['id'])
+        self.assertEqual(gasto.tipo, 'GASTO')
+        self.assertEqual(gasto.valor, Decimal('36000.00'))
+        self.assertEqual(gasto.estado_pago, 'PENDIENTE_VERIFICACION')
+        self.assertEqual(gasto.concepto, 'Compra: Leche × 12 — Proveedor Alquería')
+        self.assertEqual(gasto.usuario, self.operador)
+
+    def test_medio_no_habilitado_no_registra_nada(self):
+        response = self._post(costo_total='36000.00', medio_pago='TRANSFERENCIA')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data['code'], 'DATOS_INVALIDOS')
+        self.assertFalse(MovimientoInventario.objects.exists())
+        self.assertFalse(MovimientoCaja.objects.exists())
+        self.producto.refresh_from_db()
+        self.assertEqual(self.producto.stock_actual, 5)
+
+    def test_costo_sin_medio_es_400(self):
+        response = self._post(costo_total='36000.00')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(set(response.data.keys()), {'code', 'message', 'details'})
+        self.assertFalse(MovimientoInventario.objects.exists())
+
+    def test_reintento_no_duplica_el_gasto(self):
+        operation_id = str(uuid.uuid4())
+        primera = self._post(operation_id=operation_id, costo_total='36000.00', medio_pago='EFECTIVO')
+        segunda = self._post(operation_id=operation_id, costo_total='36000.00', medio_pago='EFECTIVO')
+
+        self.assertEqual(primera.status_code, 201)
+        self.assertEqual(segunda.status_code, 201)
+        self.assertEqual(segunda.data['gasto_id'], primera.data['gasto_id'])
+        self.assertEqual(MovimientoCaja.objects.count(), 1)
+        self.producto.refresh_from_db()
+        self.assertEqual(self.producto.stock_actual, 17)
+
+    def test_enlace_solo_permitido_en_gasto(self):
+        movimiento = self._post().data['id']
+        venta = Venta.objects.create(
+            tipo='RAPIDA', usuario=self.admin, estado='CERRADA', medio_pago='EFECTIVO',
+            estado_pago='CONFIRMADO', total=1000, fecha_cierre=timezone.now(),
+        )
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            MovimientoCaja.objects.create(
+                usuario=self.admin, venta=venta, tipo='INGRESO_VENTA', medio_pago='EFECTIVO',
+                valor=1000, fecha_confirmacion=timezone.now(), movimiento_inventario_id=movimiento,
+            )
